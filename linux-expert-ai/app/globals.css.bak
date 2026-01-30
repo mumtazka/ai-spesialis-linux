@@ -1,0 +1,301 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 5%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 7%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 7%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 142 100% 50%;
+    --primary-foreground: 222 47% 5%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 142 100% 50%;
+    --radius: 0.375rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  html {
+    @apply scroll-smooth;
+  }
+  
+  body {
+    @apply bg-background text-foreground font-mono antialiased;
+    background-color: #020408;
+  }
+
+  ::selection {
+    background-color: rgba(0, 255, 65, 0.3);
+    color: #00ff41;
+  }
+}
+
+@layer components {
+  /* Terminal glow effects */
+  .text-glow-green {
+    text-shadow: 0 0 5px rgba(0, 255, 65, 0.8), 0 0 10px rgba(0, 255, 65, 0.5), 0 0 20px rgba(0, 255, 65, 0.3);
+  }
+
+  .text-glow-orange {
+    text-shadow: 0 0 5px rgba(233, 84, 32, 0.8), 0 0 10px rgba(233, 84, 32, 0.5), 0 0 20px rgba(233, 84, 32, 0.3);
+  }
+
+  .text-glow-red {
+    text-shadow: 0 0 5px rgba(255, 0, 64, 0.8), 0 0 10px rgba(255, 0, 64, 0.5), 0 0 20px rgba(255, 0, 64, 0.3);
+  }
+
+  .text-glow-cyan {
+    text-shadow: 0 0 5px rgba(0, 255, 255, 0.8), 0 0 10px rgba(0, 255, 255, 0.5), 0 0 20px rgba(0, 255, 255, 0.3);
+  }
+
+  /* Scanline overlay effect */
+  .scanlines::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.15),
+      rgba(0, 0, 0, 0.15) 1px,
+      transparent 1px,
+      transparent 2px
+    );
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.15;
+  }
+
+  /* Custom scrollbar styling */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.5);
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(51, 65, 85, 0.8);
+    border-radius: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(71, 85, 105, 1);
+  }
+
+  /* Firefox scrollbar */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(51, 65, 85, 0.8) rgba(15, 23, 42, 0.5);
+  }
+
+  /* Terminal prompt styling */
+  .terminal-prompt {
+    @apply text-terminal-green font-mono;
+  }
+
+  .terminal-prompt-ubuntu {
+    @apply text-terminal-orange font-mono;
+  }
+
+  /* Code block styling */
+  .code-block-wrapper {
+    @apply relative group;
+  }
+
+  .code-block-wrapper pre {
+    @apply rounded-sm overflow-x-auto;
+  }
+
+  /* Cursor blink animation */
+  .cursor-blink::after {
+    content: '█';
+    @apply animate-blink text-terminal-green ml-0.5;
+  }
+
+  /* Message animations */
+  .message-enter {
+    animation: fade-in 0.2s ease-out forwards;
+  }
+
+  /* Safety badge animations */
+  .safety-badge-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  /* Terminal spinner */
+  .terminal-spinner::before {
+    content: '⠋';
+    animation: terminal-spin 0.8s linear infinite;
+  }
+
+  @keyframes terminal-spin {
+    0% { content: '⠋'; }
+    14% { content: '⠙'; }
+    28% { content: '⠹'; }
+    42% { content: '⠸'; }
+    57% { content: '⠼'; }
+    71% { content: '⠴'; }
+    85% { content: '⠦'; }
+    100% { content: '⠧'; }
+  }
+
+  /* Glassmorphism effect for overlays */
+  .glass {
+    @apply bg-slate-950/80 backdrop-blur-md;
+  }
+
+  /* Border glow effects */
+  .border-glow-green {
+    box-shadow: inset 0 0 0 1px rgba(0, 255, 65, 0.3), 0 0 10px rgba(0, 255, 65, 0.2);
+  }
+
+  .border-glow-orange {
+    box-shadow: inset 0 0 0 1px rgba(233, 84, 32, 0.3), 0 0 10px rgba(233, 84, 32, 0.2);
+  }
+}
+
+@layer utilities {
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Line clamp utilities */
+  .line-clamp-1 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .line-clamp-3 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+}
+
+/* Syntax highlighter overrides */
+pre[class*='language-'] {
+  @apply bg-slate-900/90 !important;
+  @apply border border-slate-700/50 !important;
+  @apply rounded-sm !important;
+}
+
+code[class*='language-'] {
+  @apply font-mono text-sm !important;
+}
+
+/* Markdown content styling */
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  @apply font-bold mt-4 mb-2 text-foreground;
+}
+
+.markdown-content h1 {
+  @apply text-xl;
+}
+
+.markdown-content h2 {
+  @apply text-lg;
+}
+
+.markdown-content h3 {
+  @apply text-base;
+}
+
+.markdown-content p {
+  @apply mb-3 leading-relaxed;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  @apply mb-3 pl-5;
+}
+
+.markdown-content ul {
+  @apply list-disc;
+}
+
+.markdown-content ol {
+  @apply list-decimal;
+}
+
+.markdown-content li {
+  @apply mb-1;
+}
+
+.markdown-content code {
+  @apply bg-slate-800 px-1.5 py-0.5 rounded text-sm font-mono text-terminal-cyan;
+}
+
+.markdown-content pre code {
+  @apply bg-transparent px-0 py-0 text-inherit;
+}
+
+.markdown-content blockquote {
+  @apply border-l-4 border-slate-600 pl-4 italic text-slate-400 my-3;
+}
+
+.markdown-content a {
+  @apply text-terminal-cyan hover:underline;
+}
+
+.markdown-content hr {
+  @apply border-slate-700 my-4;
+}
+
+.markdown-content table {
+  @apply w-full border-collapse mb-3;
+}
+
+.markdown-content th,
+.markdown-content td {
+  @apply border border-slate-700 px-3 py-2 text-left;
+}
+
+.markdown-content th {
+  @apply bg-slate-800 font-semibold;
+}
+
+.markdown-content tr:nth-child(even) {
+  @apply bg-slate-900/50;
+}
