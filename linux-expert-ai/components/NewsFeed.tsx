@@ -105,11 +105,34 @@ export function NewsFeed({
   onNewsClick,
 }: NewsFeedProps) {
   const { mode } = useModeStore()
-  const [news, setNews] = useState<ArchNews[]>(externalNews || MOCK_NEWS)
+  const [news, setNews] = useState<ArchNews[]>(externalNews || [])
+  const [isFetching, setIsFetching] = useState(false)
   const [selectedNews, setSelectedNews] = useState<ArchNews | null>(null)
   const [isSheetOpen, setIsSheetOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isArch = mode === 'arch'
+
+  // Fetch real news
+  const fetchNews = async () => {
+    try {
+      setIsFetching(true)
+      const res = await fetch('/api/news/arch')
+      if (!res.ok) throw new Error('Failed to fetch news')
+      const data = await res.json()
+      setNews(data)
+    } catch (error) {
+      console.error('Error fetching news:', error)
+    } finally {
+      setIsFetching(false)
+    }
+  }
+
+  // Initial fetch and polling
+  useEffect(() => {
+    fetchNews()
+    const interval = setInterval(fetchNews, 60 * 1000) // Poll every 1 minute for "very fast" updates
+    return () => clearInterval(interval)
+  }, [])
 
   // Auto-scroll to top when new news arrives
   useEffect(() => {
@@ -118,25 +141,12 @@ export function NewsFeed({
     }
   }, [news.length])
 
-  // Update news when external data changes
+  // Update news when external data changes (if provided)
   useEffect(() => {
     if (externalNews) {
       setNews(externalNews)
     }
   }, [externalNews])
-
-  // Simulate realtime subscription (replace with actual Supabase realtime)
-  useEffect(() => {
-    // This would be replaced with actual Supabase realtime subscription
-    // Example:
-    // const subscription = supabase
-    //   .channel('arch_news')
-    //   .on('postgres_changes', { event: '*', schema: 'public', table: 'arch_news' },
-    //     (payload) => { /* handle change */ }
-    //   )
-    //   .subscribe()
-    // return () => { subscription.unsubscribe() }
-  }, [])
 
   const handleNewsClick = (item: ArchNews) => {
     setSelectedNews(item)
@@ -173,6 +183,14 @@ export function NewsFeed({
             <h2 className="text-sm font-semibold text-slate-100">Arch News</h2>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => fetchNews()}
+              disabled={isFetching}
+              className="px-2 py-0.5 text-[10px] text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded transition-colors"
+              title="Refresh News"
+            >
+              {isFetching ? '...' : 'Refresh'}
+            </button>
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-terminal-green opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-terminal-green" />
@@ -183,7 +201,7 @@ export function NewsFeed({
         {/* News List */}
         <ScrollArea className="flex-1">
           <div ref={scrollRef} className="p-2 space-y-1">
-            {isLoading ? (
+            {isLoading || isFetching ? (
               <div className="flex items-center justify-center py-8">
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-terminal-green" />
               </div>
