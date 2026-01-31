@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Newspaper, ExternalLink, AlertCircle, ChevronRight, X } from 'lucide-react'
-import { useModeStore } from '@/store/modeStore'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -104,34 +103,22 @@ export function NewsFeed({
   isLoading = false,
   onNewsClick,
 }: NewsFeedProps) {
-  const { mode } = useModeStore()
   const [news, setNews] = useState<ArchNews[]>(externalNews || [])
   const [isFetching, setIsFetching] = useState(false)
   const [selectedNews, setSelectedNews] = useState<ArchNews | null>(null)
   const [isSheetOpen, setIsSheetOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const isArch = mode === 'arch'
 
-  // Fetch real news
+  // Fetch real news (currently just re-fetching props, logic can be updated for generic source)
   const fetchNews = async () => {
-    try {
-      setIsFetching(true)
-      const res = await fetch('/api/news/arch')
-      if (!res.ok) throw new Error('Failed to fetch news')
-      const data = await res.json()
-      setNews(data)
-    } catch (error) {
-      console.error('Error fetching news:', error)
-    } finally {
-      setIsFetching(false)
-    }
+    // For now, we rely on props or mock, as /api/news/arch might be specific
+    // In a real app, this would fetch from a generic news source or a personal feed
+    onNewsClick && console.log("Refresh clicked")
   }
 
   // Initial fetch and polling
   useEffect(() => {
-    fetchNews()
-    const interval = setInterval(fetchNews, 60 * 1000) // Poll every 1 minute for "very fast" updates
-    return () => clearInterval(interval)
+    // interval disabled for now as we don't have a generic endpoint yet
   }, [])
 
   // Auto-scroll to top when new news arrives
@@ -154,25 +141,6 @@ export function NewsFeed({
     onNewsClick?.(item)
   }
 
-  // Don't show in Ubuntu mode (or show Ubuntu-specific news)
-  if (!isArch) {
-    return (
-      <div className="hidden lg:flex flex-col h-full w-80 bg-slate-950 border-r border-slate-800">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-800">
-          <Newspaper className="h-4 w-4 text-terminal-orange" />
-          <h2 className="text-sm font-semibold text-slate-100">Ubuntu News</h2>
-        </div>
-        <div className="flex-1 flex items-center justify-center p-4">
-          <p className="text-xs text-slate-500 text-center">
-            Ubuntu news feed coming soon.
-            <br />
-            Check ubuntu.com/security for updates.
-          </p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <>
       <div className="hidden lg:flex flex-col h-full w-80 bg-slate-950 border-r border-slate-800">
@@ -180,21 +148,10 @@ export function NewsFeed({
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
           <div className="flex items-center gap-2">
             <Newspaper className="h-4 w-4 text-terminal-green" />
-            <h2 className="text-sm font-semibold text-slate-100">Arch News</h2>
+            <h2 className="text-sm font-semibold text-slate-100">Linux News</h2>
           </div>
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => fetchNews()}
-              disabled={isFetching}
-              className="px-2 py-0.5 text-[10px] text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded transition-colors"
-              title="Refresh News"
-            >
-              {isFetching ? '...' : 'Refresh'}
-            </button>
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-terminal-green opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-terminal-green" />
-            </span>
+            {/* Refresh button can be re-enabled when backend is ready */}
           </div>
         </div>
 

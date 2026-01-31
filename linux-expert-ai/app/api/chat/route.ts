@@ -10,8 +10,8 @@ export const dynamic = 'force-dynamic'
 
 interface ChatRequest {
   messages: Message[]
-  mode: Mode
-  system_context?: SystemContext
+  mode?: Mode // Legacy mode support, optional
+  context?: SystemContext // New profile context
   session_id?: string
 }
 
@@ -24,10 +24,6 @@ function validateRequest(body: ChatRequest): {
 } {
   if (!body.messages || !Array.isArray(body.messages) || body.messages.length === 0) {
     return { valid: false, error: 'Invalid request: messages array required' }
-  }
-
-  if (!body.mode || !['arch', 'ubuntu'].includes(body.mode)) {
-    return { valid: false, error: 'Invalid request: mode must be "arch" or "ubuntu"' }
   }
 
   // Validate message content - only require content for user messages
@@ -64,7 +60,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const { messages, mode, system_context, session_id } = body
+    const { messages, mode: explicitMode, context, session_id } = body
+
+    // Infer mode from context if not provided
+    let mode: Mode = 'arch' // default
+    if (explicitMode) {
+      mode = explicitMode
+    } else if (context?.distro_type) {
+      const distro = context.distro_type.toLowerCase()
+      if (distro.includes('ubuntu') || distro.includes('debian') || distro.includes('mint')) {
+        mode = 'ubuntu'
+      }
+    }
 
     // Get or create session ID
     const currentSessionId = session_id || uuidv4()
@@ -91,7 +98,7 @@ export async function POST(request: NextRequest) {
               created_at: new Date().toISOString(),
             },
             mode,
-            systemContext: system_context,
+            systemContext: context,
           })
 
           for await (const chunk of messageStream) {

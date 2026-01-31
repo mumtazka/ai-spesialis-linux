@@ -1,148 +1,99 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { TerminalChat } from '@/components/TerminalChat'
 import { supabase } from '@/lib/supabase/client'
-import { SystemContext as SystemContextType, ArchNews } from '@/types'
-
-// Mock user for demo (remove in production)
-const MOCK_USER = {
-  id: 'demo-user',
-  email: 'demo@linuxexpert.ai',
-  username: 'demo',
-}
-
-// Mock news data
-const MOCK_NEWS: ArchNews[] = [
-  {
-    id: '1',
-    title: 'nvidia 545.29.06-1 requires manual intervention',
-    content: 'The nvidia package has been updated to version 545.29.06-1. Users may need to rebuild their initramfs after the update.',
-    category: 'Update',
-    severity: 'high',
-    published_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    source_url: 'https://archlinux.org/news/',
-  },
-  {
-    id: '2',
-    title: 'PHP 8.3 enters [testing]',
-    content: 'PHP 8.3.0 has been added to the testing repository. Please test and report any issues.',
-    category: 'Testing',
-    severity: 'medium',
-    published_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    source_url: 'https://archlinux.org/news/',
-  },
-  {
-    id: '3',
-    title: 'Critical OpenSSL vulnerability patched',
-    content: 'A critical vulnerability in OpenSSL has been patched. Update immediately.',
-    category: 'Security',
-    severity: 'critical',
-    published_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-    source_url: 'https://security.archlinux.org/',
-  },
-]
+import { SystemContext as SystemContextType } from '@/types'
+import { LoginScreen } from '@/components/LoginScreen'
+import { ProfileSetupForm } from '@/components/ProfileSetupForm'
+import { TerminalChat } from '@/components/TerminalChat'
 
 export default function HomePage() {
-  const [user, setUser] = useState<typeof MOCK_USER | null>(MOCK_USER)
+  const [username, setUsername] = useState<string | null>(null)
   const [systemContext, setSystemContext] = useState<SystemContextType | null>(null)
-  const [news, setNews] = useState<ArchNews[]>(MOCK_NEWS)
   const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
 
-  // Check auth session on mount
+  // Load session on mount
   useEffect(() => {
-    const checkSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (session?.user) {
-          setUser({
-            id: session.user.id,
-            email: session.user.email!,
-            username: session.user.user_metadata?.username,
-          })
-
-          // Load user's system context
-          const { data: contextData } = await (supabase.from('user_systems') as any)
-            .select('*')
-            .eq('user_id', session.user.id)
-            .single()
-
-          if (contextData) {
-            setSystemContext(contextData as SystemContextType)
-          }
-        }
-      } catch (error) {
-        console.error('Error checking session:', error)
-        // Use mock user for demo
-      } finally {
+    const loadSession = async () => {
+      const storedUser = localStorage.getItem('linux_ai_username')
+      if (storedUser) {
+        await handleLogin(storedUser)
+      } else {
         setIsLoading(false)
       }
     }
+    loadSession()
+  }, [])
 
-    checkSession()
+  const handleLogin = async (inputUsername: string) => {
+    setIsLoading(true)
+    try {
+      // Check if user exists, if not create
+      const { data: existingUser } = await supabase
+        .from('app_users')
+        .select('*')
+        .eq('username', inputUsername)
+        .single()
 
-    // Subscribe to auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (session?.user) {
-          setUser({
-            id: session.user.id,
-            email: session.user.email!,
-            username: session.user.user_metadata?.username,
-          })
-        } else {
-          setUser(null)
-        }
+      if (!existingUser) {
+        // Create new user
+        const { error: createError } = await supabase
+          .from('app_users')
+          .insert({ username: inputUsername })
+
+        if (createError) throw createError
       }
-    )
 
-    return () => {
-      subscription.unsubscribe()
+      // Load profile
+      const { data: profile } = await supabase
+        .from('user_systems')
+        .select('*')
+        .eq('user_id', inputUsername)
+        .single()
+
+      setUsername(inputUsername)
+      if (profile) {
+        setSystemContext(profile as any) // Type assertion due to JSON field mismatch in generated types vs frontend types
+      }
+
+      localStorage.setItem('linux_ai_username', inputUsername)
+    } catch (error) {
+      console.error('Login error:', error)
+      alert('Failed to login. Please try again.')
+    } finally {
+      setIsLoading(false)
     }
-  }, [])
-
-  // Subscribe to realtime news updates
-  useEffect(() => {
-    // This would be replaced with actual Supabase realtime subscription
-    const channel = supabase
-      .channel('arch_news')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'arch_news' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setNews((prev) => [payload.new as ArchNews, ...prev].slice(0, 20))
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [])
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
   }
 
-  const handleSaveSystemContext = async (data: SystemContextType) => {
-    if (!user) return
+  const handleSaveProfile = async (data: any) => {
+    if (!username) return
+    setIsSaving(true)
 
-    const { error } = await (supabase.from('user_systems') as any)
-      .upsert({
-        ...data,
-        user_id: user.id,
-        updated_at: new Date().toISOString(),
-      })
+    try {
+      const { error } = await supabase
+        .from('user_systems')
+        .upsert({
+          user_id: username,
+          ...data,
+          updated_at: new Date().toISOString()
+        })
 
-    if (error) {
-      console.error('Error saving system context:', error)
-      throw error
+      if (error) throw error
+
+      setSystemContext(data)
+    } catch (error) {
+      console.error('Save profile error:', error)
+      alert('Failed to save profile.')
+    } finally {
+      setIsSaving(false)
     }
+  }
 
-    setSystemContext(data)
+  const handleLogout = () => {
+    localStorage.removeItem('linux_ai_username')
+    setUsername(null)
+    setSystemContext(null)
   }
 
   if (isLoading) {
@@ -150,19 +101,41 @@ export default function HomePage() {
       <div className="flex items-center justify-center h-screen bg-slate-950">
         <div className="flex flex-col items-center gap-4">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-terminal-green" />
-          <p className="text-sm text-slate-500">Loading...</p>
+          <p className="text-sm text-slate-500">Initializing Terminal...</p>
         </div>
       </div>
     )
   }
 
+  if (!username) {
+    return <LoginScreen onLogin={handleLogin} isLoading={isLoading} />
+  }
+
+  if (!systemContext) {
+    return (
+      <ProfileSetupForm
+        username={username}
+        onSave={handleSaveProfile}
+        isSaving={isSaving}
+      />
+    )
+  }
+
+  // Mock user object for compatibility with TerminalChat
+  const userObj = {
+    id: username,
+    email: `${username}@local`,
+    username: username,
+    avatar_url: undefined
+  }
+
   return (
     <TerminalChat
-      user={user}
+      user={userObj}
       initialSystemContext={systemContext}
-      initialNews={news}
+      initialNews={[]} // News disabled for now
       onLogout={handleLogout}
-      onSaveSystemContext={handleSaveSystemContext}
+      onSaveSystemContext={handleSaveProfile}
     />
   )
 }

@@ -12,6 +12,23 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
+      app_users: {
+        Row: {
+          username: string
+          created_at: string
+          last_login_at: string | null
+        }
+        Insert: {
+          username: string
+          created_at?: string
+          last_login_at?: string | null
+        }
+        Update: {
+          username?: string
+          created_at?: string
+          last_login_at?: string | null
+        }
+      },
       profiles: {
         Row: {
           id: string
@@ -41,21 +58,25 @@ export interface Database {
       user_systems: {
         Row: {
           id: string
-          user_id: string
-          distro_type: 'arch' | 'ubuntu-22.04' | 'ubuntu-24.04'
+          user_id: string // Now refers to username
+          distro_type: string
           kernel_version: string | null
+          distro_version: string | null
           de_wm: string | null
-          gpu: 'nvidia' | 'amd' | 'intel' | 'none' | null
+          gpu: string | null
+          additional_setup_notes: string | null
           packages: Json
           updated_at: string
         }
         Insert: {
           id?: string
           user_id: string
-          distro_type: 'arch' | 'ubuntu-22.04' | 'ubuntu-24.04'
+          distro_type: string
           kernel_version?: string | null
+          distro_version?: string | null
           de_wm?: string | null
-          gpu?: 'nvidia' | 'amd' | 'intel' | 'none' | null
+          gpu?: string | null
+          additional_setup_notes?: string | null
           packages?: Json
           updated_at?: string
         }

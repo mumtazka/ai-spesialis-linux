@@ -13,11 +13,13 @@ export interface User {
 export interface SystemContext {
   id?: string
   user_id?: string
-  distro_type: 'arch' | 'ubuntu-22.04' | 'ubuntu-24.04'
+  distro_type: string
   kernel_version: string
+  distro_version: string
   de_wm: string
-  gpu: 'nvidia' | 'amd' | 'intel' | 'none'
+  gpu: string
   packages: string
+  additional_setup_notes?: string
   updated_at?: string
 }
 

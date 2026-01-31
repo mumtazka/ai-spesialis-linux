@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { Terminal, LogOut, User, Wifi, WifiOff, Settings } from 'lucide-react'
-import { useModeStore } from '@/store/modeStore'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -13,7 +12,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { cn } from '@/lib/utils'
-import { ModeToggle } from './ModeToggle'
 
 interface TerminalHeaderProps {
   user?: {
@@ -31,45 +29,24 @@ export function TerminalHeader({
   onLogout,
   connectionStatus = 'connected',
 }: TerminalHeaderProps) {
-  const { mode, getModeColor } = useModeStore()
   const [showSettings, setShowSettings] = useState(false)
-
-  const modeColor = getModeColor()
-  const isArch = mode === 'arch'
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 h-14 border-b border-slate-800 bg-slate-950/95 backdrop-blur-sm">
       <div className="flex h-full items-center justify-between px-4">
         {/* Logo */}
         <div className="flex items-center gap-3">
-          <div
-            className={cn(
-              'flex h-8 w-8 items-center justify-center rounded-sm border',
-              isArch
-                ? 'border-terminal-green/50 bg-terminal-green/10'
-                : 'border-terminal-orange/50 bg-terminal-orange/10'
-            )}
-          >
-            <Terminal
-              className={cn(
-                'h-4 w-4',
-                isArch ? 'text-terminal-green' : 'text-terminal-orange'
-              )}
-            />
+          <div className="flex h-8 w-8 items-center justify-center rounded-sm border border-terminal-green/50 bg-terminal-green/10">
+            <Terminal className="h-4 w-4 text-terminal-green" />
           </div>
           <div className="flex flex-col">
             <span className="text-sm font-bold text-slate-100">
               LinuxExpert AI
             </span>
             <span className="text-[10px] text-slate-500">
-              {isArch ? 'Arch Linux Expert' : 'Ubuntu Server Architect'}
+              Terminal Assistant
             </span>
           </div>
-        </div>
-
-        {/* Center - Mode Toggle */}
-        <div className="hidden sm:flex items-center">
-          <ModeToggle />
         </div>
 
         {/* Right Side */}
@@ -93,16 +70,6 @@ export function TerminalHeader({
               </>
             )}
           </div>
-
-          {/* Settings Button (Mobile) */}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="sm:hidden text-slate-400 hover:text-slate-100"
-            onClick={() => setShowSettings(!showSettings)}
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
 
           {/* User Menu */}
           {user ? (
@@ -141,10 +108,10 @@ export function TerminalHeader({
                   </Avatar>
                   <div className="flex flex-col">
                     <span className="text-sm font-medium text-slate-100">
-                      {user.username || user.email.split('@')[0]}
+                      {user.username}
                     </span>
                     <span className="text-xs text-slate-500 truncate max-w-[150px]">
-                      {user.email}
+                      {user.email || 'Local User'}
                     </span>
                   </div>
                 </div>
@@ -169,13 +136,6 @@ export function TerminalHeader({
           )}
         </div>
       </div>
-
-      {/* Mobile Mode Toggle */}
-      {showSettings && (
-        <div className="sm:hidden border-t border-slate-800 bg-slate-950/95 px-4 py-2">
-          <ModeToggle />
-        </div>
-      )}
     </header>
   )
 }
