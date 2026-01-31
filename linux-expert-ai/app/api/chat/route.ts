@@ -30,14 +30,20 @@ function validateRequest(body: ChatRequest): {
     return { valid: false, error: 'Invalid request: mode must be "arch" or "ubuntu"' }
   }
 
-  // Validate message content
+  // Validate message content - only require content for user messages
   for (const msg of body.messages) {
-    if (!msg.content || typeof msg.content !== 'string') {
-      return { valid: false, error: 'Invalid message format' }
+    // User messages must have content
+    if (msg.role === 'user' && (!msg.content || typeof msg.content !== 'string')) {
+      return { valid: false, error: 'Invalid message format: user messages require content' }
     }
 
-    // Limit message size to prevent abuse
-    if (msg.content.length > 50000) {
+    // All messages with content must be strings
+    if (msg.content && typeof msg.content !== 'string') {
+      return { valid: false, error: 'Invalid message format: content must be string' }
+    }
+
+    // Limit message size to prevent abuse (only if content exists)
+    if (msg.content && msg.content.length > 50000) {
       return { valid: false, error: 'Message too long (max 50000 characters)' }
     }
   }

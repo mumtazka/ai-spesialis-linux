@@ -94,12 +94,15 @@ export function TerminalChat({
     setIsStreaming(true)
 
     try {
-      // Call API
+      // Call API - filter out empty messages
+      const validMessages = [...messages, { ...userMessage, id: 'temp', created_at: new Date().toISOString() }]
+        .filter(m => m.content && m.content.trim().length > 0)
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [...messages, { ...userMessage, id: 'temp', created_at: new Date().toISOString() }],
+          messages: validMessages,
           mode,
           system_context: initialSystemContext,
         }),
