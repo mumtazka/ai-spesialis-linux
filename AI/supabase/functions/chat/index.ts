@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
+// Use streaming endpoint for better UX
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent'
 
 const corsHeaders = {
@@ -8,204 +9,641 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// RATE LIMITER
-const rateLimitMap = new Map<string, { count: number, resetTime: number }>();
-const LIMIT = 20;
-const WINDOW = 60 * 1000;
+// ============================================================================
+// LINUX NEWS SYSTEM - Multi-source aggregation
+// ============================================================================
 
-// GUARDRAILS
-const DANGEROUS_PATTERNS = [
-    /rm\s+-rf\s+\//,
-    /mkfs\.\w+/,
-    /dd\s+if=.*of=\/dev\/(sda|hd|disk|nvme)/,
-    /:\(\)\s*{\s*:\|:&\s*};:/,
-    /wget.*\|\s*(sh|bash)/,
-    /curl.*\|\s*(sh|bash)/
-];
+interface NewsItem {
+    title: string;
+    date: string;
+    source: string;
+    url: string;
+    summary?: string;
+    severity?: 'info' | 'warning' | 'critical';
+    distro: string;
+}
 
-function checkSafety(text: string): boolean {
-    for (const pattern of DANGEROUS_PATTERNS) {
-        if (pattern.test(text)) return false;
+// News cache with TTL
+const newsCache = new Map<string, { items: NewsItem[], fetchedAt: number }>();
+const NEWS_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+// RSS Feed sources for major Linux distros
+const NEWS_SOURCES: Record<string, { url: string; type: 'rss' | 'json' | 'html' }> = {
+    arch: { url: 'https://archlinux.org/feeds/news/', type: 'rss' },
+    ubuntu: { url: 'https://ubuntu.com/blog/feed', type: 'rss' },
+    fedora: { url: 'https://fedoramagazine.org/feed/', type: 'rss' },
+    debian: { url: 'https://www.debian.org/News/news', type: 'html' },
+    opensuse: { url: 'https://news.opensuse.org/feed/', type: 'rss' },
+    manjaro: { url: 'https://forum.manjaro.org/c/announcements/8.rss', type: 'rss' },
+    linux_kernel: { url: 'https://www.kernel.org/feeds/kdist.xml', type: 'rss' },
+    nixos: { url: 'https://nixos.org/blog/announcements-rss.xml', type: 'rss' },
+};
+
+async function fetchRSSNews(source: string, url: string): Promise<NewsItem[]> {
+    try {
+        const response = await fetch(url, {
+            headers: { 'User-Agent': 'LinuxExpertAI/1.0' }
+        });
+
+        if (!response.ok) return [];
+
+        const text = await response.text();
+        const items: NewsItem[] = [];
+
+        // Simple RSS parsing (no external dependencies)
+        const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+        const titleRegex = /<title><!\[CDATA\[(.*?)\]\]>|<title>(.*?)<\/title>/;
+        const linkRegex = /<link>(.*?)<\/link>|<link[^>]*href="([^"]*)"[^>]*\/>/;
+        const dateRegex = /<pubDate>(.*?)<\/pubDate>|<dc:date>(.*?)<\/dc:date>|<updated>(.*?)<\/updated>/;
+        const descRegex = /<description><!\[CDATA\[([\s\S]*?)\]\]>|<description>([\s\S]*?)<\/description>/;
+
+        let match;
+        let count = 0;
+        while ((match = itemRegex.exec(text)) !== null && count < 10) {
+            const item = match[1];
+            const titleMatch = titleRegex.exec(item);
+            const linkMatch = linkRegex.exec(item);
+            const dateMatch = dateRegex.exec(item);
+            const descMatch = descRegex.exec(item);
+
+            const title = titleMatch?.[1] || titleMatch?.[2] || 'No title';
+            const url = linkMatch?.[1] || linkMatch?.[2] || '';
+            const dateStr = dateMatch?.[1] || dateMatch?.[2] || dateMatch?.[3] || '';
+            const desc = descMatch?.[1] || descMatch?.[2] || '';
+
+            // Detect severity based on keywords
+            let severity: 'info' | 'warning' | 'critical' = 'info';
+            const lowerTitle = title.toLowerCase();
+            if (lowerTitle.includes('security') || lowerTitle.includes('vulnerability') || lowerTitle.includes('cve')) {
+                severity = 'critical';
+            } else if (lowerTitle.includes('breaking') || lowerTitle.includes('migration') || lowerTitle.includes('manual intervention')) {
+                severity = 'warning';
+            }
+
+            items.push({
+                title: title.trim(),
+                date: formatNewsDate(dateStr),
+                source: source,
+                url: url.trim(),
+                summary: cleanHTML(desc).substring(0, 200),
+                severity,
+                distro: source
+            });
+            count++;
+        }
+
+        return items;
+    } catch (error) {
+        console.error(`Failed to fetch ${source} news:`, error);
+        return [];
     }
-    return true;
 }
 
-// FULL SYSTEM PROMPT
-function buildSystemPrompt(context: any): string {
-    const distro = context?.distro_type || 'Unknown Linux';
-    const version = context?.kernel_version || '';
-    const wm = context?.de_wm || 'Unknown DE/WM';
-    const driver = context?.gpu || 'Unknown Driver';
-    const notes = context?.additional_setup_notes || 'None';
-
-    return `You are a Linux-focused AI assistant integrated into a web application.
-
-This system uses a single unified chat.
-There is NO distro selection in the chat interface.
-
-Each user is authenticated by a username.
-Before answering any message, you MUST load and use the user's system profile.
-
-User system profile fields:
-- linux_distro (required)
-- distro_version (optional)
-- wm_or_de (optional)
-- gpu_driver (optional)
-- additional_setup_notes (optional free text)
-
-Behavior rules:
-1. Always assume the user is logged in.
-2. Never ask the user to choose a distro or environment in chat.
-3. Every answer MUST be tailored to the user's system profile.
-4. Commands, package managers, file paths, and configurations MUST match the user's distro.
-5. If multiple solutions exist, choose the one most compatible with the user's setup.
-6. If required data is missing, make a reasonable assumption based on the distro and state the assumption briefly.
-7. Do NOT give generic Linux advice unless explicitly requested.
-8. Do NOT use templates or canned responses.
-9. Be direct, technical, and solution-oriented.
-10. Treat the system profile as authoritative context.
-
-Failure to follow the user's system profile is a critical error.
-
-Active User System Profile:
-${distro}
-${version}
-${wm}
-${driver}
-${notes}
-
-Use this context as the primary basis for reasoning.`;
-}
-
-function convertToGeminiMessages(messages: any[]) {
-    return messages
-        .filter((m: any) => m.role === 'user' || m.role === 'assistant')
-        .map((m: any) => ({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }],
-        }))
-}
-
-serve(async (req) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-        return new Response('ok', { headers: corsHeaders })
+function formatNewsDate(dateStr: string): string {
+    try {
+        const date = new Date(dateStr);
+        return date.toISOString().split('T')[0]; // YYYY-MM-DD
+    } catch {
+        return new Date().toISOString().split('T')[0];
     }
+}
+
+function cleanHTML(html: string): string {
+    return html
+        .replace(/<[^>]*>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+async function getAllLinuxNews(targetDistro?: string): Promise<NewsItem[]> {
+    const cacheKey = targetDistro || 'all';
+    const cached = newsCache.get(cacheKey);
+
+    if (cached && (Date.now() - cached.fetchedAt) < NEWS_CACHE_TTL) {
+        return cached.items;
+    }
+
+    const sourcesToFetch = targetDistro
+        ? { [targetDistro.toLowerCase()]: NEWS_SOURCES[targetDistro.toLowerCase()] }
+        : NEWS_SOURCES;
+
+    const newsPromises = Object.entries(sourcesToFetch)
+        .filter(([_, source]) => source?.type === 'rss')
+        .map(([name, source]) => fetchRSSNews(name, source.url));
+
+    const results = await Promise.allSettled(newsPromises);
+    const allNews: NewsItem[] = [];
+
+    for (const result of results) {
+        if (result.status === 'fulfilled') {
+            allNews.push(...result.value);
+        }
+    }
+
+    // Sort by date (newest first)
+    allNews.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    // Cache the results
+    newsCache.set(cacheKey, { items: allNews, fetchedAt: Date.now() });
+
+    return allNews;
+}
+
+function formatNewsForContext(news: NewsItem[], limit = 15): string {
+    if (news.length === 0) return 'No recent news available.';
+
+    const today = new Date().toISOString().split('T')[0];
+
+    return news.slice(0, limit).map(item => {
+        const severityIcon = item.severity === 'critical' ? '🚨' :
+            item.severity === 'warning' ? '⚠️' : '📰';
+        return `${severityIcon} [${item.date}] [${item.source.toUpperCase()}] ${item.title}${item.summary ? '\n   → ' + item.summary : ''}`;
+    }).join('\n\n');
+}
+
+// ============================================================================
+// WEB SEARCH / GROUNDING SYSTEM
+// ============================================================================
+
+interface SearchResult {
+    title: string;
+    snippet: string;
+    url: string;
+}
+
+async function searchWeb(query: string, apiKey: string): Promise<SearchResult[]> {
+    // Use Gemini with Google Search grounding
+    const groundingRequest = {
+        contents: [{
+            role: 'user',
+            parts: [{ text: `Search for the latest information about: ${query}. Return factual, up-to-date information with sources.` }]
+        }],
+        tools: [{
+            googleSearch: {}
+        }],
+        generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 2048,
+        }
+    };
 
     try {
-        // JWT Verification (if Authorization header contains user token)
-        const authHeader = req.headers.get('Authorization')
-        if (authHeader && authHeader.startsWith('Bearer ')) {
-            const token = authHeader.replace('Bearer ', '')
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(groundingRequest)
+            }
+        );
 
-            // If token looks like a user JWT (not anon key), verify it
-            const supabaseUrl = Deno.env.get('SUPABASE_URL')
-            const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+        if (!response.ok) {
+            console.error('Search grounding failed:', await response.text());
+            return [];
+        }
 
-            if (supabaseUrl && supabaseServiceKey && token.length > 100) {
-                // This is likely a user JWT, verify it
-                const supabase = createClient(supabaseUrl, supabaseServiceKey)
-                const { data: { user }, error } = await supabase.auth.getUser(token)
+        const data = await response.json();
 
-                if (error) {
-                    console.warn('JWT verification failed:', error.message)
-                    // Continue anyway for anonymous access, but log it
+        // Extract grounding metadata if available
+        const groundingMetadata = data.candidates?.[0]?.groundingMetadata;
+        const searchResults: SearchResult[] = [];
+
+        if (groundingMetadata?.groundingChunks) {
+            for (const chunk of groundingMetadata.groundingChunks) {
+                if (chunk.web) {
+                    searchResults.push({
+                        title: chunk.web.title || 'Web Result',
+                        snippet: chunk.web.uri || '',
+                        url: chunk.web.uri || ''
+                    });
                 }
             }
         }
 
-        const apiKey = Deno.env.get('GEMINI_API_KEY')
-        if (!apiKey) {
-            throw new Error('Server misconfiguration: GEMINI_API_KEY missing')
+        // Also get the text response
+        const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+        return searchResults.length > 0 ? searchResults : [{
+            title: 'Search Result',
+            snippet: textContent.substring(0, 500),
+            url: ''
+        }];
+    } catch (error) {
+        console.error('Web search error:', error);
+        return [];
+    }
+}
+
+// Detect if query needs web search
+function needsWebSearch(message: string): { needed: boolean; query?: string } {
+    const searchTriggers = [
+        /latest\s+(news|update|version|release)/i,
+        /what('s| is) new in/i,
+        /current (version|status) of/i,
+        /how to .* in 202[4-9]/i,
+        /is there .* update/i,
+        /breaking changes? (in|for)/i,
+        /search (for|about)/i,
+        /find (information|docs|documentation)/i,
+        /what happened (to|with)/i,
+        /any (issues?|bugs?) with/i,
+    ];
+
+    for (const trigger of searchTriggers) {
+        if (trigger.test(message)) {
+            // Extract search query from message
+            const query = message.replace(/^(please |can you |could you )/i, '').trim();
+            return { needed: true, query };
+        }
+    }
+
+    return { needed: false };
+}
+
+// ============================================================================
+// RATE LIMITING
+// ============================================================================
+
+const rateLimitMap = new Map<string, { count: number, resetTime: number, tier: 'free' | 'pro' }>();
+const LIMITS = {
+    free: { requests: 15, window: 60 * 1000 },
+    pro: { requests: 100, window: 60 * 1000 }
+};
+
+// ============================================================================
+// SAFETY GUARDRAILS
+// ============================================================================
+
+const SAFETY_PATTERNS = {
+    destructive: [
+        /rm\s+-rf\s+\//,
+        /mkfs\.\w+/,
+        /dd\s+if=.*of=\/dev\/(sda|hd|disk|nvme)/,
+        /:\(\)\s*{\s*:\|:&\s*};:/,
+        /wget.*\|\s*(sh|bash)/,
+        /curl.*\|\s*(sh|bash)/
+    ],
+    config_critical: [
+        /\/etc\/(passwd|shadow|sudoers)/,
+        /chmod\s+-R\s+777\s+\//
+    ]
+};
+
+function checkSafety(text: string, context?: any): { safe: boolean; reason?: string } {
+    for (const pattern of SAFETY_PATTERNS.destructive) {
+        if (pattern.test(text)) {
+            return { safe: false, reason: "Destructive system command detected" };
+        }
+    }
+
+    if (context?.expertise_level === 'beginner') {
+        for (const pattern of SAFETY_PATTERNS.config_critical) {
+            if (pattern.test(text)) {
+                return { safe: false, reason: "Critical config blocked for beginner" };
+            }
+        }
+    }
+
+    return { safe: true };
+}
+
+// ============================================================================
+// SYSTEM PROMPT BUILDER - With Live News & Search Context
+// ============================================================================
+
+function getPackageManager(distro: string): string {
+    const pm: Record<string, string> = {
+        'ubuntu': 'apt', 'debian': 'apt', 'fedora': 'dnf', 'arch': 'pacman',
+        'manjaro': 'pacman', 'opensuse': 'zypper', 'alpine': 'apk', 'void': 'xbps',
+        'gentoo': 'emerge', 'nixos': 'nix'
+    };
+    return pm[distro.toLowerCase()] || 'package manager';
+}
+
+function getInitSystem(distro: string): string {
+    const init: Record<string, string> = {
+        'ubuntu': 'systemd', 'debian': 'systemd', 'fedora': 'systemd',
+        'arch': 'systemd', 'alpine': 'openrc', 'void': 'runit', 'gentoo': 'openrc'
+    };
+    return init[distro.toLowerCase()] || 'systemd';
+}
+
+async function buildAdvancedSystemPrompt(
+    context: any,
+    news: NewsItem[],
+    searchResults?: SearchResult[]
+): Promise<string> {
+    const distro = context?.distro_type || 'Unknown Linux';
+    const version = context?.distro_version || '';
+    const wm = context?.de_wm || 'Unknown DE/WM';
+    const driver = context?.gpu_driver || context?.gpu || 'Unknown';
+    const shell = context?.default_shell || 'bash';
+    const expertise = context?.expertise_level || 'intermediate';
+    const notes = context?.additional_setup_notes || '';
+    const packages = context?.key_packages || '';
+
+    const currentDate = new Date().toISOString().split('T')[0];
+    const currentTime = new Date().toLocaleTimeString('en-US', { hour12: false });
+
+    // Format news for context
+    const newsContext = formatNewsForContext(
+        news.filter(n => n.distro.toLowerCase() === distro.toLowerCase() || distro === 'Unknown Linux'),
+        10
+    );
+
+    // Format search results if available
+    const searchContext = searchResults?.length
+        ? `\n## LIVE SEARCH RESULTS\n${searchResults.map(r => `- ${r.title}: ${r.snippet}`).join('\n')}`
+        : '';
+
+    return `You are LinuxExpert AI - an elite Linux Systems Architect with real-time knowledge.
+
+## CURRENT DATE & TIME
+📅 ${currentDate} ${currentTime} UTC
+
+## USER SYSTEM PROFILE (Auto-loaded from database)
+┌─────────────────────────────────────
+│ Distribution: ${distro} ${version}
+│ Desktop/WM:   ${wm}
+│ GPU Driver:   ${driver}
+│ Default Shell: ${shell}
+│ Expertise:    ${expertise}
+│ Key Packages: ${packages || 'Not specified'}
+│ Notes:        ${notes || 'None'}
+└─────────────────────────────────────
+
+## LIVE LINUX NEWS (Last updated: ${currentDate})
+${newsContext}
+
+${searchContext}
+
+## CORE DIRECTIVES
+
+### 1. REAL-TIME AWARENESS
+- You have access to LIVE news feeds from major Linux distributions
+- Always check if there are relevant breaking changes or updates in the news above
+- If a user asks about updates/upgrades, reference actual news items with dates
+- Warn about known issues from recent news
+
+### 2. DISTRO-SPECIFIC COMMANDS
+- Package Manager: ${getPackageManager(distro)}
+- Init System: ${getInitSystem(distro)}
+- NEVER give generic commands. Always use ${distro}-specific syntax
+- Include version-specific considerations for ${version}
+
+### 3. STRUCTURED REASONING
+For every technical question:
+1. **Analyze** - Understand what the user is trying to achieve
+2. **Context Check** - How does their ${distro} + ${wm} + ${driver} affect the solution?
+3. **News Check** - Are there any recent changes/issues that affect this?
+4. **Solution** - Provide step-by-step with verification commands
+5. **Warnings** - Issue relevant warnings based on their expertise level (${expertise})
+
+### 4. RESPONSE FORMAT
+\`\`\`
+📋 ANALYSIS
+[Brief problem analysis]
+
+🔧 SOLUTION
+[Step-by-step solution with commands]
+
+✅ VERIFICATION
+[Commands to verify success]
+
+⚠️ WARNINGS
+[Any relevant warnings or caveats]
+
+📰 RELATED NEWS
+[If applicable, mention relevant news items]
+\`\`\`
+
+### 5. EXPERTISE ADAPTATION
+${expertise === 'beginner' ?
+            '- Explain every command in detail\n- Include safety warnings\n- Suggest creating backups before any changes' :
+            expertise === 'advanced' ?
+                '- Be concise and technical\n- Skip basic explanations\n- Include optimization tips' :
+                '- Balance between explanation and brevity\n- Explain non-obvious steps'}
+
+### 6. SEARCH INTEGRATION
+If the user asks about something that requires up-to-date information that isn't in the news feed:
+- Acknowledge if you need to search for current information
+- Reference the search results if provided
+- Always cite sources when possible
+
+REMEMBER: The user's profile is ALREADY loaded. Do NOT ask them to specify their distro - you KNOW it's ${distro}.`;
+}
+
+// ============================================================================
+// COMPLEXITY CLASSIFIER
+// ============================================================================
+
+function classifyComplexity(messages: any[]): 'simple' | 'moderate' | 'complex' {
+    const lastMsg = messages[messages.length - 1]?.content || '';
+    const complexPatterns = /(compile|build from source|kernel|driver conflict|boot failure|network bridge|lvm|raid|systemd service|troubleshoot|debug|performance tuning)/i;
+    const simplePatterns = /(how to|what is|check version|list|show|display|where is)/i;
+
+    if (complexPatterns.test(lastMsg)) return 'complex';
+    if (simplePatterns.test(lastMsg)) return 'simple';
+    return 'moderate';
+}
+
+// ============================================================================
+// MAIN SERVER
+// ============================================================================
+
+serve(async (req) => {
+    if (req.method === 'OPTIONS') {
+        return new Response('ok', { headers: corsHeaders });
+    }
+
+    try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        const apiKey = Deno.env.get('GEMINI_API_KEY');
+
+        if (!apiKey) throw new Error('GEMINI_API_KEY missing');
+
+        const authHeader = req.headers.get('Authorization');
+        let userTier: 'free' | 'pro' = 'free';
+        let userId: string | null = null;
+        let userProfile: any = null;
+
+        // ================================================================
+        // AUTH & PROFILE AUTO-LOAD
+        // ================================================================
+        if (authHeader?.startsWith('Bearer ') && supabaseUrl && supabaseServiceKey) {
+            const token = authHeader.replace('Bearer ', '');
+
+            if (token.length > 100) {
+                const supabase = createClient(supabaseUrl, supabaseServiceKey);
+                const { data: { user }, error } = await supabase.auth.getUser(token);
+
+                if (!error && user) {
+                    userId = user.id;
+
+                    // Auto-load FULL user profile from database
+                    const { data: profile } = await supabase
+                        .from('user_profiles')
+                        .select('*')
+                        .eq('id', user.id)
+                        .single();
+
+                    if (profile) {
+                        userProfile = {
+                            distro_type: profile.linux_distro || profile.distro_type,
+                            distro_version: profile.distro_version,
+                            de_wm: profile.wm_or_de || profile.de_wm,
+                            gpu_driver: profile.gpu_driver || profile.gpu,
+                            default_shell: profile.default_shell || 'bash',
+                            expertise_level: profile.expertise_level || 'intermediate',
+                            additional_setup_notes: profile.additional_setup_notes,
+                            key_packages: profile.key_packages,
+                        };
+                        userTier = profile.tier || 'free';
+                    }
+                }
+            }
         }
 
-        // Rate Limiting
-        const ip = req.headers.get('x-forwarded-for') || req.headers.get('cf-connecting-ip') || 'unknown'
-        const now = Date.now()
-        let limitData = rateLimitMap.get(ip) || { count: 0, resetTime: now + WINDOW }
+        // ================================================================
+        // RATE LIMITING
+        // ================================================================
+        const identifier = userId || (req.headers.get('x-forwarded-for') || 'unknown');
+        const now = Date.now();
+        const limit = LIMITS[userTier];
+
+        let limitData = rateLimitMap.get(identifier) || {
+            count: 0,
+            resetTime: now + limit.window,
+            tier: userTier
+        };
 
         if (now > limitData.resetTime) {
-            limitData = { count: 0, resetTime: now + WINDOW }
+            limitData = { count: 0, resetTime: now + limit.window, tier: userTier };
         }
 
-        if (limitData.count >= LIMIT) {
-            return new Response(JSON.stringify({ error: "Rate limit exceeded. Try again in a minute." }), {
+        if (limitData.count >= limit.requests) {
+            return new Response(JSON.stringify({
+                error: "Rate limit exceeded",
+                retry_after: Math.ceil((limitData.resetTime - now) / 1000),
+            }), {
                 status: 429,
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-            })
+            });
         }
-        limitData.count++
-        rateLimitMap.set(ip, limitData)
+        limitData.count++;
+        rateLimitMap.set(identifier, limitData);
 
-        // Parse Body
-        const body = await req.json()
-        const { messages, mode, context } = body
+        // ================================================================
+        // PARSE REQUEST
+        // ================================================================
+        const body = await req.json();
+        const { messages, context: providedContext } = body;
 
-        // Validate
-        if (!messages || !Array.isArray(messages) || messages.length === 0) {
-            throw new Error('Invalid request: messages array required')
-        }
+        if (!messages?.length) throw new Error('Messages array required');
 
-        // Safety Check
+        // Merge provided context with auto-loaded profile (profile takes precedence)
+        const finalContext = { ...providedContext, ...userProfile };
+
+        // Safety check
         const lastMsg = messages[messages.length - 1];
-        if (lastMsg && lastMsg.role === 'user' && !checkSafety(lastMsg.content || '')) {
+        const safety = checkSafety(lastMsg.content || '', finalContext);
+        if (!safety.safe) {
             return new Response(JSON.stringify({
-                error: "Safety Guard: Potentially destructive command detected. Please rephrase your question."
+                error: safety.reason,
+                suggestion: "Please describe what you're trying to achieve."
             }), {
                 status: 400,
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-            })
+            });
         }
 
-        // Build Gemini Request
-        const geminiMessages = convertToGeminiMessages(messages)
+        // ================================================================
+        // FETCH LIVE NEWS
+        // ================================================================
+        const distroNews = await getAllLinuxNews(finalContext?.distro_type);
 
-        if (geminiMessages.length === 0) {
-            throw new Error('No valid messages to process')
+        // ================================================================
+        // WEB SEARCH (if needed)
+        // ================================================================
+        let searchResults: SearchResult[] = [];
+        const searchCheck = needsWebSearch(lastMsg.content || '');
+        if (searchCheck.needed && searchCheck.query) {
+            searchResults = await searchWeb(searchCheck.query, apiKey);
         }
 
-        const systemInstruction = buildSystemPrompt(context)
+        // ================================================================
+        // BUILD SYSTEM PROMPT WITH LIVE DATA
+        // ================================================================
+        const systemPrompt = await buildAdvancedSystemPrompt(
+            finalContext,
+            distroNews,
+            searchResults
+        );
 
-        const requestBody = {
+        // ================================================================
+        // PREPARE GEMINI REQUEST
+        // ================================================================
+        const complexity = classifyComplexity(messages);
+
+        const geminiMessages = messages
+            .filter((m: any) => ['user', 'assistant', 'model'].includes(m.role))
+            .map((m: any) => ({
+                role: m.role === 'assistant' ? 'model' : 'user',
+                parts: [{ text: m.content }],
+            }));
+
+        const requestBody: any = {
             contents: geminiMessages,
-            systemInstruction: { parts: [{ text: systemInstruction }] },
+            systemInstruction: { parts: [{ text: systemPrompt }] },
             generationConfig: {
-                temperature: 0.7,
+                temperature: complexity === 'complex' ? 0.7 : 0.5,
                 topP: 0.95,
                 topK: 40,
                 maxOutputTokens: 8192,
             },
+        };
+
+        // Add Google Search grounding for real-time queries
+        if (searchCheck.needed) {
+            requestBody.tools = [{ googleSearch: {} }];
         }
 
-        // Call Gemini API
+        // ================================================================
+        // CALL GEMINI API (STREAMING)
+        // ================================================================
         const geminiRes = await fetch(`${GEMINI_API_URL}?alt=sse&key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
-        })
+        });
 
         if (!geminiRes.ok) {
-            const errText = await geminiRes.text()
-            console.error('Gemini API Error:', errText)
-            throw new Error(`AI service error: ${geminiRes.status}`)
+            const err = await geminiRes.text();
+            throw new Error(`Gemini API: ${geminiRes.status} - ${err}`);
         }
 
-        // Stream Response
         return new Response(geminiRes.body, {
             headers: {
                 ...corsHeaders,
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
             },
-        })
+        });
 
     } catch (error) {
-        console.error('Edge Function Error:', error)
+        console.error('Edge Function Error:', error);
         return new Response(JSON.stringify({
-            error: (error as Error).message || 'An unexpected error occurred'
+            error: (error as Error).message,
+            timestamp: new Date().toISOString()
         }), {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+        });
     }
-})
+});

@@ -168,7 +168,7 @@ export function TerminalChat({
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden pt-14">
         {/* Left Sidebar - News Feed (Desktop) */}
-        <NewsFeed news={initialNews} />
+        <NewsFeed userDistro={initialSystemContext?.distro_type} />
 
         {/* Center - Chat Area */}
         <div className="flex-1 flex flex-col min-w-0">
@@ -183,7 +183,7 @@ export function TerminalChat({
                 </Button>
               </SheetTrigger>
               <SheetContent side="left" className="w-80 p-0 bg-slate-950 border-slate-800">
-                <NewsFeed news={initialNews} />
+                <NewsFeed userDistro={initialSystemContext?.distro_type} />
               </SheetContent>
             </Sheet>
 

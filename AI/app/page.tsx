@@ -38,8 +38,8 @@ export default function HomePage() {
 
       if (!existingUser) {
         // Create new user
-        const { error: createError } = await supabase
-          .from('app_users')
+        const { error: createError } = await (supabase
+          .from('app_users') as any)
           .insert({ username: inputUsername })
 
         if (createError) throw createError
@@ -71,13 +71,36 @@ export default function HomePage() {
     setIsSaving(true)
 
     try {
-      const { error } = await supabase
-        .from('user_systems')
-        .upsert({
-          user_id: username,
-          ...data,
-          updated_at: new Date().toISOString()
-        })
+      // First check if profile exists
+      const { data: existing } = await (supabase
+        .from('user_systems') as any)
+        .select('user_id')
+        .eq('user_id', username)
+        .single()
+
+      let error;
+
+      if (existing) {
+        // Update existing profile
+        const result = await (supabase
+          .from('user_systems') as any)
+          .update({
+            ...data,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', username)
+        error = result.error
+      } else {
+        // Insert new profile
+        const result = await (supabase
+          .from('user_systems') as any)
+          .insert({
+            user_id: username,
+            ...data,
+            updated_at: new Date().toISOString()
+          })
+        error = result.error
+      }
 
       if (error) throw error
 

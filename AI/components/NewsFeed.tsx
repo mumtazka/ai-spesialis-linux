@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { Newspaper, ExternalLink, AlertCircle, ChevronRight, X } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Newspaper, ExternalLink, AlertCircle, ChevronRight, RefreshCw, Filter } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
 import {
   Sheet,
   SheetContent,
@@ -11,135 +12,120 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { ArchNews } from '@/types'
-import { formatRelativeTime } from '@/lib/utils'
+import {
+  fetchLinuxNews,
+  formatNewsTime,
+  getSeverityColor,
+  getSeverityIcon,
+  getDistroColor,
+  type NewsItem
+} from '@/lib/news'
 
 interface NewsFeedProps {
-  news?: ArchNews[]
-  isLoading?: boolean
-  onNewsClick?: (news: ArchNews) => void
+  userDistro?: string
+  onNewsClick?: (news: NewsItem) => void
 }
 
-// Mock data for initial render
-const MOCK_NEWS: ArchNews[] = [
-  {
-    id: '1',
-    title: 'nvidia 545.29.06-1 requires manual intervention',
-    content: 'The nvidia package has been updated to version 545.29.06-1. Users may need to rebuild their initramfs after the update.',
-    category: 'Update',
-    severity: 'high',
-    published_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    source_url: 'https://archlinux.org/news/',
-  },
-  {
-    id: '2',
-    title: 'PHP 8.3 enters [testing]',
-    content: 'PHP 8.3.0 has been added to the testing repository. Please test and report any issues.',
-    category: 'Testing',
-    severity: 'medium',
-    published_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    source_url: 'https://archlinux.org/news/',
-  },
-  {
-    id: '3',
-    title: 'Critical OpenSSL vulnerability patched',
-    content: 'A critical vulnerability in OpenSSL has been patched. Update immediately.',
-    category: 'Security',
-    severity: 'critical',
-    published_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-    source_url: 'https://security.archlinux.org/',
-  },
-  {
-    id: '4',
-    title: 'KDE Plasma 6.0 now in [stable]',
-    content: 'KDE Plasma 6.0 has been moved to the stable repository. Users upgrading from Plasma 5 should review the migration guide.',
-    category: 'Stable',
-    severity: 'medium',
-    published_at: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-    source_url: 'https://archlinux.org/news/',
-  },
-  {
-    id: '5',
-    title: 'Linux kernel 6.8 released',
-    content: 'Linux kernel 6.8 is now available in the stable repository.',
-    category: 'News',
-    severity: 'low',
-    published_at: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString(),
-    source_url: 'https://archlinux.org/news/',
-  },
+const DISTRO_OPTIONS = [
+  { key: 'all', label: 'All Distros' },
+  { key: 'arch', label: 'Arch Linux' },
+  { key: 'ubuntu', label: 'Ubuntu' },
+  { key: 'fedora', label: 'Fedora' },
+  { key: 'debian', label: 'Debian' },
+  { key: 'manjaro', label: 'Manjaro' },
+  { key: 'opensuse', label: 'openSUSE' },
+  { key: 'kernel', label: 'Linux Kernel' },
+  { key: 'nixos', label: 'NixOS' },
 ]
 
-function getCategoryColor(category: ArchNews['category']): string {
-  switch (category) {
-    case 'Testing':
-      return 'warning'
-    case 'Stable':
-      return 'arch'
-    case 'Security':
-      return 'danger'
-    case 'Update':
-      return 'info'
-    default:
-      return 'neutral'
-  }
-}
-
-function getSeverityColor(severity: ArchNews['severity']): string {
-  switch (severity) {
-    case 'critical':
-      return 'text-terminal-red'
-    case 'high':
-      return 'text-terminal-orange'
-    case 'medium':
-      return 'text-terminal-yellow'
-    default:
-      return 'text-slate-400'
-  }
-}
-
-export function NewsFeed({
-  news: externalNews,
-  isLoading = false,
-  onNewsClick,
-}: NewsFeedProps) {
-  const [news, setNews] = useState<ArchNews[]>(externalNews || [])
-  const [isFetching, setIsFetching] = useState(false)
-  const [selectedNews, setSelectedNews] = useState<ArchNews | null>(null)
+export function NewsFeed({ userDistro, onNewsClick }: NewsFeedProps) {
+  const [news, setNews] = useState<NewsItem[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null)
   const [isSheetOpen, setIsSheetOpen] = useState(false)
+  const [filterDistro, setFilterDistro] = useState<string | undefined>(userDistro?.toLowerCase())
+  const [lastUpdated, setLastUpdated] = useState<string>('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Fetch real news (currently just re-fetching props, logic can be updated for generic source)
-  const fetchNews = async () => {
-    // For now, we rely on props or mock, as /api/news/arch might be specific
-    // In a real app, this would fetch from a generic news source or a personal feed
-    onNewsClick && console.log("Refresh clicked")
-  }
+  // Fetch news
+  const loadNews = useCallback(async (showRefreshIndicator = false) => {
+    if (showRefreshIndicator) setIsRefreshing(true)
+    else setIsLoading(true)
 
-  // Initial fetch and polling
+    try {
+      const response = await fetchLinuxNews({
+        distro: filterDistro === 'all' ? undefined : filterDistro,
+        limit: 30
+      })
+
+      if (response.success) {
+        setNews(response.items)
+        setLastUpdated(response.last_updated)
+      }
+    } catch (error) {
+      console.error('Failed to load news:', error)
+    } finally {
+      setIsLoading(false)
+      setIsRefreshing(false)
+    }
+  }, [filterDistro])
+
+  // Initial fetch
   useEffect(() => {
-    // interval disabled for now as we don't have a generic endpoint yet
-  }, [])
+    loadNews()
+  }, [loadNews])
 
-  // Auto-scroll to top when new news arrives
+  // Auto-refresh every 5 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadNews(true)
+    }, 5 * 60 * 1000)
+
+    return () => clearInterval(interval)
+  }, [loadNews])
+
+  // Update filter when user distro changes
+  useEffect(() => {
+    if (userDistro) {
+      setFilterDistro(userDistro.toLowerCase())
+    }
+  }, [userDistro])
+
+  // Scroll to top when new news arrives
   useEffect(() => {
     if (scrollRef.current && news.length > 0) {
       scrollRef.current.scrollTop = 0
     }
   }, [news.length])
 
-  // Update news when external data changes (if provided)
-  useEffect(() => {
-    if (externalNews) {
-      setNews(externalNews)
-    }
-  }, [externalNews])
-
-  const handleNewsClick = (item: ArchNews) => {
+  const handleNewsClick = (item: NewsItem) => {
     setSelectedNews(item)
     setIsSheetOpen(true)
     onNewsClick?.(item)
   }
+
+  const handleRefresh = () => {
+    loadNews(true)
+  }
+
+  const handleFilterChange = (distro: string) => {
+    setFilterDistro(distro === 'all' ? undefined : distro)
+  }
+
+  // Group news by severity for visual priority
+  const criticalNews = news.filter(n => n.severity === 'critical')
+  const warningNews = news.filter(n => n.severity === 'warning')
+  const infoNews = news.filter(n => n.severity === 'info')
 
   return (
     <>
@@ -151,74 +137,136 @@ export function NewsFeed({
             <h2 className="text-sm font-semibold text-slate-100">Linux News</h2>
           </div>
           <div className="flex items-center gap-1">
-            {/* Refresh button can be re-enabled when backend is ready */}
+            {/* Filter Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-7 w-7">
+                  <Filter className="h-3 w-3 text-slate-400" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40 bg-slate-900 border-slate-700">
+                <DropdownMenuLabel className="text-xs text-slate-400">
+                  Filter by Distro
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-slate-700" />
+                {DISTRO_OPTIONS.map(option => (
+                  <DropdownMenuItem
+                    key={option.key}
+                    onClick={() => handleFilterChange(option.key)}
+                    className={cn(
+                      "text-xs cursor-pointer",
+                      filterDistro === option.key || (!filterDistro && option.key === 'all')
+                        ? "bg-slate-800 text-terminal-green"
+                        : "text-slate-300"
+                    )}
+                  >
+                    {option.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Refresh Button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={cn(
+                "h-3 w-3 text-slate-400",
+                isRefreshing && "animate-spin"
+              )} />
+            </Button>
           </div>
         </div>
+
+        {/* Last Updated */}
+        {lastUpdated && (
+          <div className="px-4 py-1 border-b border-slate-800/50">
+            <span className="text-[10px] text-slate-500">
+              Updated: {new Date(lastUpdated).toLocaleTimeString()}
+            </span>
+          </div>
+        )}
 
         {/* News List */}
         <ScrollArea className="flex-1">
           <div ref={scrollRef} className="p-2 space-y-1">
-            {isLoading || isFetching ? (
+            {isLoading ? (
               <div className="flex items-center justify-center py-8">
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-terminal-green" />
               </div>
             ) : news.length === 0 ? (
-              <div className="flex items-center justify-center py-8">
+              <div className="flex flex-col items-center justify-center py-8 gap-2">
+                <Newspaper className="h-8 w-8 text-slate-600" />
                 <p className="text-xs text-slate-500">No news available</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRefresh}
+                  className="text-xs text-terminal-green"
+                >
+                  Retry
+                </Button>
               </div>
             ) : (
-              news.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => handleNewsClick(item)}
-                  className={cn(
-                    'w-full text-left p-3 rounded-sm transition-all duration-200',
-                    'hover:bg-slate-900 border border-transparent',
-                    'hover:border-slate-700 group'
-                  )}
-                >
-                  <div className="flex items-start gap-2">
-                    <div className="flex flex-col gap-1 flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <Badge
-                          variant={getCategoryColor(item.category) as any}
-                          className="text-[9px] px-1 py-0"
-                        >
-                          {item.category}
-                        </Badge>
-                        <span
-                          className={cn(
-                            'h-1.5 w-1.5 rounded-full flex-shrink-0',
-                            getSeverityColor(item.severity).replace('text-', 'bg-')
-                          )}
-                        />
-                      </div>
-                      <h3 className="text-xs font-medium text-slate-200 line-clamp-2 group-hover:text-slate-100">
-                        {item.title}
-                      </h3>
-                      <span className="text-[10px] text-slate-500">
-                        {formatRelativeTime(item.published_at)}
+              <>
+                {/* Critical News Section */}
+                {criticalNews.length > 0 && (
+                  <div className="mb-3">
+                    <div className="flex items-center gap-1 px-2 py-1 mb-1">
+                      <span className="text-[10px] font-medium text-red-500 uppercase tracking-wider">
+                        🚨 Breaking / Critical
                       </span>
                     </div>
-                    <ChevronRight className="h-3 w-3 text-slate-600 flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    {criticalNews.map((item) => (
+                      <NewsCard key={item.id} item={item} onClick={handleNewsClick} />
+                    ))}
                   </div>
-                </button>
-              ))
+                )}
+
+                {/* Warning News Section */}
+                {warningNews.length > 0 && (
+                  <div className="mb-3">
+                    <div className="flex items-center gap-1 px-2 py-1 mb-1">
+                      <span className="text-[10px] font-medium text-yellow-500 uppercase tracking-wider">
+                        ⚠️ Requires Attention
+                      </span>
+                    </div>
+                    {warningNews.map((item) => (
+                      <NewsCard key={item.id} item={item} onClick={handleNewsClick} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Info News Section */}
+                {infoNews.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-1 px-2 py-1 mb-1">
+                      <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">
+                        📰 Latest Updates
+                      </span>
+                    </div>
+                    {infoNews.slice(0, 15).map((item) => (
+                      <NewsCard key={item.id} item={item} onClick={handleNewsClick} />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </ScrollArea>
 
         {/* Footer */}
         <div className="p-3 border-t border-slate-800">
-          <a
-            href="https://archlinux.org/news/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-1.5 text-xs text-slate-400 hover:text-terminal-green transition-colors"
-          >
-            <ExternalLink className="h-3 w-3" />
-            View all on archlinux.org
-          </a>
+          <div className="flex items-center justify-between text-[10px] text-slate-500">
+            <span>
+              {filterDistro ? `Showing: ${filterDistro}` : 'All distros'}
+            </span>
+            <span>{news.length} items</span>
+          </div>
         </div>
       </div>
 
@@ -226,44 +274,116 @@ export function NewsFeed({
       <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
         <SheetContent className="bg-slate-950 border-slate-700 w-full sm:max-w-lg">
           <SheetHeader>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Badge
-                variant={selectedNews ? (getCategoryColor(selectedNews.category) as any) : 'neutral'}
+                className="text-[10px]"
+                style={{
+                  backgroundColor: `${getDistroColor(selectedNews?.distro || '')}20`,
+                  color: getDistroColor(selectedNews?.distro || ''),
+                  borderColor: `${getDistroColor(selectedNews?.distro || '')}40`
+                }}
               >
-                {selectedNews?.category}
+                {selectedNews?.source}
               </Badge>
               {selectedNews?.severity === 'critical' && (
-                <div className="flex items-center gap-1 text-terminal-red">
+                <div className="flex items-center gap-1 text-red-500">
                   <AlertCircle className="h-3 w-3" />
-                  <span className="text-xs">Critical</span>
+                  <span className="text-xs font-medium">Critical</span>
+                </div>
+              )}
+              {selectedNews?.severity === 'warning' && (
+                <div className="flex items-center gap-1 text-yellow-500">
+                  <AlertCircle className="h-3 w-3" />
+                  <span className="text-xs font-medium">Warning</span>
                 </div>
               )}
             </div>
-            <SheetTitle className="text-slate-100 text-left">
+            <SheetTitle className="text-slate-100 text-left text-base">
               {selectedNews?.title}
             </SheetTitle>
-            <SheetDescription className="text-slate-400 text-left">
-              Published {selectedNews && formatRelativeTime(selectedNews.published_at)}
+            <SheetDescription className="text-slate-400 text-left text-xs">
+              {selectedNews && new Date(selectedNews.date).toLocaleDateString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+              })}
             </SheetDescription>
           </SheetHeader>
-          <div className="mt-4">
+
+          <div className="mt-4 space-y-4">
             <p className="text-sm text-slate-300 leading-relaxed">
-              {selectedNews?.content}
+              {selectedNews?.summary}
             </p>
-            {selectedNews?.source_url && (
+
+            {/* Tags */}
+            {selectedNews?.tags && selectedNews.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {selectedNews.tags.map(tag => (
+                  <Badge
+                    key={tag}
+                    variant="outline"
+                    className="text-[10px] text-slate-400 border-slate-600"
+                  >
+                    #{tag}
+                  </Badge>
+                ))}
+              </div>
+            )}
+
+            {selectedNews?.url && (
               <a
-                href={selectedNews.source_url}
+                href={selectedNews.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 mt-4 text-xs text-terminal-green hover:underline"
+                className="inline-flex items-center gap-1.5 text-xs text-terminal-green hover:underline"
               >
                 <ExternalLink className="h-3 w-3" />
-                Read more
+                Read full article
               </a>
             )}
           </div>
         </SheetContent>
       </Sheet>
     </>
+  )
+}
+
+// Separate NewsCard component for cleaner code
+function NewsCard({ item, onClick }: { item: NewsItem; onClick: (item: NewsItem) => void }) {
+  return (
+    <button
+      onClick={() => onClick(item)}
+      className={cn(
+        'w-full text-left p-3 rounded-sm transition-all duration-200',
+        'hover:bg-slate-900 border border-transparent',
+        'hover:border-slate-700 group',
+        item.severity === 'critical' && 'border-l-2 border-l-red-500/50',
+        item.severity === 'warning' && 'border-l-2 border-l-yellow-500/50'
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <div className="flex flex-col gap-1 flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <Badge
+              className="text-[9px] px-1.5 py-0"
+              style={{
+                backgroundColor: `${getDistroColor(item.distro)}20`,
+                color: getDistroColor(item.distro),
+              }}
+            >
+              {item.source}
+            </Badge>
+            <span className="text-[9px] text-slate-500">
+              {formatNewsTime(item.date)}
+            </span>
+          </div>
+          <h3 className="text-xs font-medium text-slate-200 line-clamp-2 group-hover:text-slate-100">
+            {item.title}
+          </h3>
+        </div>
+        <ChevronRight className="h-3 w-3 text-slate-600 flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+      </div>
+    </button>
   )
 }
