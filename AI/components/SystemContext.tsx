@@ -1,7 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Save, Server, Cpu, Monitor, Package, Loader2 } from 'lucide-react'
+import { Save, Server, Cpu, Monitor, Loader2 } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -76,32 +83,29 @@ export function SystemContext({
             <Monitor className="h-3 w-3" />
             Distribution Name
           </Label>
-          <Input
-            placeholder="e.g. Arch Linux, Ubuntu, Fedora"
+          <Select
             value={formData.distro_type}
-            onChange={(e) =>
-              setFormData((prev) => ({ ...prev, distro_type: e.target.value }))
+            onValueChange={(value) =>
+              setFormData((prev) => ({ ...prev, distro_type: value }))
             }
             disabled={externalLoading}
-            className="text-sm focus-visible:ring-terminal-green/50"
-          />
-        </div>
-
-        {/* Distro Version */}
-        <div className="space-y-2">
-          <Label className="text-xs text-slate-400 flex items-center gap-1.5">
-            <Monitor className="h-3 w-3" />
-            Version / Release
-          </Label>
-          <Input
-            placeholder="e.g. Rolling, 24.04 LTS, 40"
-            value={formData.distro_version || ''}
-            onChange={(e) =>
-              setFormData((prev) => ({ ...prev, distro_version: e.target.value }))
-            }
-            disabled={externalLoading}
-            className="text-sm focus-visible:ring-terminal-green/50"
-          />
+          >
+            <SelectTrigger className="text-sm focus:ring-terminal-green/50">
+              <SelectValue placeholder="Select Distribution" />
+            </SelectTrigger>
+            <SelectContent>
+              {[
+                "Arch Linux", "Debian", "Ubuntu", "Fedora", "openSUSE",
+                "CentOS", "RHEL", "Alpine Linux", "Gentoo", "Slackware",
+                "Linux Mint", "Manjaro", "Pop!_OS", "Solus", "Void Linux",
+                "NixOS", "Kali Linux", "Other"
+              ].map((distro) => (
+                <SelectItem key={distro} value={distro}>
+                  {distro}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Kernel Version */}
@@ -110,16 +114,27 @@ export function SystemContext({
             <Cpu className="h-3 w-3" />
             Kernel Version
           </Label>
-          <Input
-            placeholder="e.g. 6.8.1-arch1-1"
-            value={formData.kernel_version || ''}
-            onChange={(e) =>
-              setFormData((prev) => ({ ...prev, kernel_version: e.target.value }))
+          <Select
+            value={formData.kernel_version}
+            onValueChange={(value) =>
+              setFormData((prev) => ({ ...prev, kernel_version: value }))
             }
             disabled={externalLoading}
-            className="text-sm focus-visible:ring-terminal-green/50"
-          />
-          <p className="text-[10px] text-slate-500">Run: uname -r</p>
+          >
+            <SelectTrigger className="text-sm focus:ring-terminal-green/50">
+              <SelectValue placeholder="Select Kernel" />
+            </SelectTrigger>
+            <SelectContent>
+              {[
+                "Linux Stable", "Linux LTS", "Linux Zen", "Linux Hardened",
+                "Linux Hard Real-Time", "Distribution Default"
+              ].map((kernel) => (
+                <SelectItem key={kernel} value={kernel}>
+                  {kernel}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* DE/WM */}
@@ -128,15 +143,28 @@ export function SystemContext({
             <Monitor className="h-3 w-3" />
             Desktop / Window Manager
           </Label>
-          <Input
-            placeholder="e.g. GNOME, KDE, Hyprland, i3"
-            value={formData.de_wm || ''}
-            onChange={(e) =>
-              setFormData((prev) => ({ ...prev, de_wm: e.target.value }))
+          <Select
+            value={formData.de_wm}
+            onValueChange={(value) =>
+              setFormData((prev) => ({ ...prev, de_wm: value }))
             }
             disabled={externalLoading}
-            className="text-sm focus-visible:ring-terminal-green/50"
-          />
+          >
+            <SelectTrigger className="text-sm focus:ring-terminal-green/50">
+              <SelectValue placeholder="Select DE/WM" />
+            </SelectTrigger>
+            <SelectContent>
+              {[
+                "GNOME", "KDE Plasma", "XFCE", "Mate", "Cinnamon", "LXQt",
+                "Budgie", "I3", "Sway", "Hyprland", "Bspwm", "Awesome",
+                "Openbox", "None (Headless)", "Other"
+              ].map((de) => (
+                <SelectItem key={de} value={de}>
+                  {de}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* GPU */}
@@ -145,15 +173,29 @@ export function SystemContext({
             <Cpu className="h-3 w-3" />
             GPU / Driver
           </Label>
-          <Input
-            placeholder="e.g. NVIDIA RTX 3060, AMD, Intel"
-            value={formData.gpu || ''}
-            onChange={(e) =>
-              setFormData((prev) => ({ ...prev, gpu: e.target.value }))
+          <Select
+            value={formData.gpu}
+            onValueChange={(value) =>
+              setFormData((prev) => ({ ...prev, gpu: value }))
             }
             disabled={externalLoading}
-            className="text-sm focus-visible:ring-terminal-green/50"
-          />
+          >
+            <SelectTrigger className="text-sm focus:ring-terminal-green/50">
+              <SelectValue placeholder="Select GPU Type" />
+            </SelectTrigger>
+            <SelectContent>
+              {[
+                "Integrated (Intel)", "Integrated (AMD)",
+                "Discrete (NVIDIA Proprietary)", "Discrete (NVIDIA Open Source)",
+                "Discrete (AMD)", "Discrete (Intel Arc)",
+                "Software Rendering", "Other"
+              ].map((gpu) => (
+                <SelectItem key={gpu} value={gpu}>
+                  {gpu}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <Separator className="bg-slate-800" />
@@ -171,23 +213,6 @@ export function SystemContext({
             }
             disabled={externalLoading}
             className="text-sm min-h-[80px] focus-visible:ring-terminal-green/50"
-          />
-        </div>
-
-        {/* Critical Packages */}
-        <div className="space-y-2">
-          <Label className="text-xs text-slate-400 flex items-center gap-1.5">
-            <Package className="h-3 w-3" />
-            Key Packages List
-          </Label>
-          <Textarea
-            placeholder="Paste important package versions here..."
-            value={formData.packages || ''}
-            onChange={(e) =>
-              setFormData((prev) => ({ ...prev, packages: e.target.value }))
-            }
-            disabled={externalLoading}
-            className="text-xs min-h-[100px] font-mono focus-visible:ring-terminal-green/50"
           />
         </div>
       </div>

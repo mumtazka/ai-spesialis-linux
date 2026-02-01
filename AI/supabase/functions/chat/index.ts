@@ -266,6 +266,179 @@ function needsWebSearch(message: string): { needed: boolean; query?: string } {
 }
 
 // ============================================================================
+// GITHUB REPOSITORY SEARCH & README READING
+// ============================================================================
+
+interface GitHubRepo {
+    name: string;
+    full_name: string;
+    description: string;
+    html_url: string;
+    stargazers_count: number;
+    language: string;
+    topics: string[];
+    updated_at: string;
+    readme?: string;
+}
+
+// Detect if query mentions GitHub or a repo
+function detectGitHubQuery(message: string): { isGitHub: boolean; repoName?: string; searchQuery?: string } {
+    const lowerMsg = message.toLowerCase();
+
+    // Direct repo mention pattern: owner/repo or github.com/owner/repo
+    const repoPattern = /(?:github\.com\/)?([a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+)/i;
+    const repoMatch = message.match(repoPattern);
+
+    if (repoMatch) {
+        return { isGitHub: true, repoName: repoMatch[1] };
+    }
+
+    // GitHub search keywords
+    const githubKeywords = [
+        'github', 'github repo', 'repository', 'readme',
+        'open source', 'project on github', 'check github',
+        'find on github', 'github search'
+    ];
+
+    for (const keyword of githubKeywords) {
+        if (lowerMsg.includes(keyword)) {
+            // Extract potential search term
+            const searchTermMatch = message.match(/(?:github|repo(?:sitory)?|readme|project)\s+(?:for\s+)?([a-zA-Z0-9_\s-]+)/i);
+            return {
+                isGitHub: true,
+                searchQuery: searchTermMatch?.[1]?.trim() || message.replace(/github|repo|readme/gi, '').trim()
+            };
+        }
+    }
+
+    return { isGitHub: false };
+}
+
+// Search GitHub repositories
+async function searchGitHubRepos(query: string): Promise<GitHubRepo[]> {
+    try {
+        const searchUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=5`;
+
+        const response = await fetch(searchUrl, {
+            headers: {
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'LinuxExpertAI/1.0'
+            }
+        });
+
+        if (!response.ok) {
+            console.error('GitHub search failed:', response.status);
+            return [];
+        }
+
+        const data = await response.json();
+
+        return (data.items || []).map((repo: any) => ({
+            name: repo.name,
+            full_name: repo.full_name,
+            description: repo.description || 'No description',
+            html_url: repo.html_url,
+            stargazers_count: repo.stargazers_count,
+            language: repo.language || 'Unknown',
+            topics: repo.topics || [],
+            updated_at: repo.updated_at
+        }));
+    } catch (error) {
+        console.error('GitHub search error:', error);
+        return [];
+    }
+}
+
+// Fetch README from a GitHub repo
+async function fetchGitHubReadme(repoFullName: string): Promise<string | null> {
+    try {
+        const readmeUrl = `https://api.github.com/repos/${repoFullName}/readme`;
+
+        const response = await fetch(readmeUrl, {
+            headers: {
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'LinuxExpertAI/1.0'
+            }
+        });
+
+        if (!response.ok) {
+            console.error('README fetch failed:', response.status);
+            return null;
+        }
+
+        const data = await response.json();
+
+        // Decode base64 content
+        if (data.content && data.encoding === 'base64') {
+            const decoded = atob(data.content.replace(/\n/g, ''));
+            // Limit to first 4000 chars to not overwhelm context
+            return decoded.substring(0, 4000);
+        }
+
+        return null;
+    } catch (error) {
+        console.error('README fetch error:', error);
+        return null;
+    }
+}
+
+// Get full repo info with README
+async function getGitHubRepoInfo(repoFullName: string): Promise<GitHubRepo | null> {
+    try {
+        const repoUrl = `https://api.github.com/repos/${repoFullName}`;
+
+        const response = await fetch(repoUrl, {
+            headers: {
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'LinuxExpertAI/1.0'
+            }
+        });
+
+        if (!response.ok) {
+            return null;
+        }
+
+        const repo = await response.json();
+        const readme = await fetchGitHubReadme(repoFullName);
+
+        return {
+            name: repo.name,
+            full_name: repo.full_name,
+            description: repo.description || 'No description',
+            html_url: repo.html_url,
+            stargazers_count: repo.stargazers_count,
+            language: repo.language || 'Unknown',
+            topics: repo.topics || [],
+            updated_at: repo.updated_at,
+            readme: readme || undefined
+        };
+    } catch (error) {
+        console.error('Repo info fetch error:', error);
+        return null;
+    }
+}
+
+// Format GitHub info for AI context
+function formatGitHubContext(repos: GitHubRepo[]): string {
+    if (repos.length === 0) return '';
+
+    return repos.map(repo => {
+        let info = `
+📦 **${repo.full_name}** (⭐ ${repo.stargazers_count})
+   Language: ${repo.language} | Updated: ${new Date(repo.updated_at).toLocaleDateString()}
+   URL: ${repo.html_url}
+   Description: ${repo.description}
+   Topics: ${repo.topics.join(', ') || 'None'}`;
+
+        if (repo.readme) {
+            info += `\n\n   📖 README CONTENT:\n   ${repo.readme.substring(0, 2000).replace(/\n/g, '\n   ')}`;
+        }
+
+        return info;
+    }).join('\n\n---\n');
+}
+
+// ============================================================================
 // RATE LIMITING
 // ============================================================================
 
@@ -404,23 +577,30 @@ For every technical question:
 4. **Solution** - Provide step-by-step with verification commands
 5. **Warnings** - Issue relevant warnings based on their expertise level (${expertise})
 
-### 4. RESPONSE FORMAT
-\`\`\`
-📋 ANALYSIS
-[Brief problem analysis]
+### 4. RESPONSE FORMAT & LANGUAGE
+- **LANGUAGE**: You MUST respond in the SAME LANGUAGE as the user's last message. If they speak Indonesian, you speak Indonesian. If English, English.
+- **THINKING BLOCK**: You must wrap your analysis, context check, and internal reasoning inside [THINKING] and [/THINKING] tags. This part will be hidden by default.
+
+Use this EXACT structure:
+
+[THINKING]
+1. Analysis: [Analyze the user's request]
+2. System Check: [Check distro/version compatibility]
+3. News Check: [Check for relevant breaking news]
+4. Safety: [Evaluate command safety]
+[/THINKING]
 
 🔧 SOLUTION
-[Step-by-step solution with commands]
+[Direct answer/solution in the user's language]
 
 ✅ VERIFICATION
-[Commands to verify success]
+[Verification commands]
 
 ⚠️ WARNINGS
-[Any relevant warnings or caveats]
+[Crucial warnings if any]
 
 📰 RELATED NEWS
-[If applicable, mention relevant news items]
-\`\`\`
+[Relevant news items if any]
 
 ### 5. EXPERTISE ADAPTATION
 ${expertise === 'beginner' ?
@@ -578,13 +758,43 @@ serve(async (req) => {
         }
 
         // ================================================================
+        // GITHUB SEARCH (if needed)
+        // ================================================================
+        let githubContext = '';
+        const githubCheck = detectGitHubQuery(lastMsg.content || '');
+
+        if (githubCheck.isGitHub) {
+            if (githubCheck.repoName) {
+                // Direct repo lookup
+                const repoInfo = await getGitHubRepoInfo(githubCheck.repoName);
+                if (repoInfo) {
+                    githubContext = `\n\n## GITHUB REPOSITORY INFO (${githubCheck.repoName})\n${formatGitHubContext([repoInfo])}`;
+                }
+            } else if (githubCheck.searchQuery) {
+                // Search for repos
+                const repos = await searchGitHubRepos(githubCheck.searchQuery);
+                if (repos.length > 0) {
+                    // Get README for the top result
+                    const topRepo = await getGitHubRepoInfo(repos[0].full_name);
+                    if (topRepo) repos[0] = topRepo;
+                    githubContext = `\n\n## GITHUB SEARCH RESULTS for "${githubCheck.searchQuery}"\n${formatGitHubContext(repos)}`;
+                }
+            }
+        }
+
+        // ================================================================
         // BUILD SYSTEM PROMPT WITH LIVE DATA
         // ================================================================
-        const systemPrompt = await buildAdvancedSystemPrompt(
+        let systemPrompt = await buildAdvancedSystemPrompt(
             finalContext,
             distroNews,
             searchResults
         );
+
+        // Append GitHub context if available
+        if (githubContext) {
+            systemPrompt += githubContext;
+        }
 
         // ================================================================
         // PREPARE GEMINI REQUEST

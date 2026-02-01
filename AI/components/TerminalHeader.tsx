@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Terminal, LogOut, User, Wifi, WifiOff, Settings } from 'lucide-react'
+import { Terminal, LogOut, User, Wifi, WifiOff, Settings, RotateCcw, PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -11,6 +11,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 interface TerminalHeaderProps {
@@ -21,13 +27,19 @@ interface TerminalHeaderProps {
     avatar_url?: string
   } | null
   onLogout?: () => void
+  onResetChat?: () => void
   connectionStatus?: 'connected' | 'disconnected' | 'connecting'
+  showContext?: boolean
+  onToggleContext?: () => void
 }
 
 export function TerminalHeader({
   user,
   onLogout,
+  onResetChat,
   connectionStatus = 'connected',
+  showContext,
+  onToggleContext,
 }: TerminalHeaderProps) {
   const [showSettings, setShowSettings] = useState(false)
 
@@ -51,6 +63,51 @@ export function TerminalHeader({
 
         {/* Right Side */}
         <div className="flex items-center gap-2">
+          {/* Reset Chat Button */}
+          {onResetChat && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-slate-400 hover:text-terminal-green hover:bg-terminal-green/10"
+                    onClick={onResetChat}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-slate-800 text-slate-200 border-slate-700">
+                  <p className="text-xs">New Chat (Ctrl+L)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+
+          {/* Context Toggle Button */}
+          {onToggleContext && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-8 w-8 text-slate-400 hover:text-slate-100",
+                      showContext && "bg-slate-800 text-slate-100"
+                    )}
+                    onClick={onToggleContext}
+                  >
+                    <PanelRight className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="bg-slate-800 text-slate-200 border-slate-700">
+                  <p className="text-xs">Toggle System Context</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+
           {/* Connection Status */}
           <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-sm bg-slate-900/50">
             {connectionStatus === 'connected' ? (

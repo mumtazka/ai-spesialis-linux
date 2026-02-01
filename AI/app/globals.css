@@ -321,4 +321,4 @@ code[class*='language-'] {
 
 .markdown-content tr:nth-child(even) {
   @apply bg-slate-900/50;
-}
+}.pixelated { image-rendering: pixelated; }

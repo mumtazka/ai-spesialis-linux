@@ -134,15 +134,15 @@ export default function HomePage() {
     return <LoginScreen onLogin={handleLogin} isLoading={isLoading} />
   }
 
-  if (!systemContext) {
-    return (
-      <ProfileSetupForm
-        username={username}
-        onSave={handleSaveProfile}
-        isSaving={isSaving}
-      />
-    )
-  }
+  // if (!systemContext) {
+  //   return (
+  //     <ProfileSetupForm
+  //       username={username}
+  //       onSave={handleSaveProfile}
+  //       isSaving={isSaving}
+  //     />
+  //   )
+  // }
 
   // Mock user object for compatibility with TerminalChat
   const userObj = {

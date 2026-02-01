@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { Copy, Check, Terminal, User } from 'lucide-react'
+import { Copy, Check, Terminal, User, Brain, ChevronDown, ChevronRight } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -103,6 +103,7 @@ function CodeBlock({
 
 export function ChatMessage({ message, showSafety = true }: ChatMessageProps) {
   const { mode, getModeColor } = useModeStore()
+  const [showThinking, setShowThinking] = useState(false)
   const isUser = message.role === 'user'
   const isArch = mode === 'arch'
   const accentColor = getModeColor()
@@ -130,8 +131,8 @@ export function ChatMessage({ message, showSafety = true }: ChatMessageProps) {
             isUser
               ? 'bg-slate-700'
               : isArch
-              ? 'bg-terminal-green/10 border border-terminal-green/30'
-              : 'bg-terminal-orange/10 border border-terminal-orange/30'
+                ? 'bg-terminal-green/10 border border-terminal-green/30'
+                : 'bg-terminal-orange/10 border border-terminal-orange/30'
           )}
         >
           {isUser ? (
@@ -169,7 +170,7 @@ export function ChatMessage({ message, showSafety = true }: ChatMessageProps) {
                 minute: '2-digit',
               })}
             </span>
-            
+
             {/* Safety Badge for Assistant Messages */}
             {!isUser && showSafety && safetyLevel && safetyLevel !== 'safe' && (
               <CommandSafetyBadge
@@ -188,45 +189,77 @@ export function ChatMessage({ message, showSafety = true }: ChatMessageProps) {
                 ? 'bg-slate-800 text-slate-100'
                 : 'bg-slate-900/50 border-l-4',
               !isUser &&
-                (isArch
-                  ? 'border-terminal-green/50'
-                  : 'border-terminal-orange/50')
+              (isArch
+                ? 'border-terminal-green/50'
+                : 'border-terminal-orange/50')
             )}
           >
             {isUser ? (
               <p className="text-sm whitespace-pre-wrap">{message.content}</p>
             ) : (
               <div className="markdown-content text-sm text-slate-200">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    code({ node, inline, className, children, ...props }: any) {
-                      const match = /language-(\w+)/.exec(className || '')
-                      const language = match ? match[1] : 'bash'
-                      
-                      // Extract filename if present: ```bash:filename.sh
-                      const filenameMatch = className?.match(/language-\w+:(.+)/)
-                      const filename = filenameMatch ? filenameMatch[1] : undefined
+                {(() => {
+                  // Parse thinking block
+                  const thinkingMatch = message.content.match(/\[THINKING\]([\s\S]*?)(\[\/THINKING\]|$)/);
+                  const thinkingContent = thinkingMatch ? thinkingMatch[1].trim() : null;
+                  const displayContent = message.content.replace(/\[THINKING\][\s\S]*?(\[\/THINKING\]|$)/, '').trim();
 
-                      return !inline && match ? (
-                        <CodeBlock
-                          language={language}
-                          value={String(children).replace(/\n$/, '')}
-                          filename={filename}
-                        />
-                      ) : (
-                        <code className={className} {...props}>
-                          {children}
-                        </code>
-                      )
-                    },
-                    pre({ children }) {
-                      return <>{children}</>
-                    },
-                  }}
-                >
-                  {message.content}
-                </ReactMarkdown>
+                  return (
+                    <>
+                      {thinkingContent && (
+                        <div className="mb-4 rounded-sm overflow-hidden border border-slate-800 bg-slate-950/50">
+                          <button
+                            onClick={() => setShowThinking(!showThinking)}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-500 hover:text-slate-300 hover:bg-slate-900/50 transition-colors"
+                          >
+                            <Brain className="h-3.5 w-3.5" />
+                            <span>Thinking Process</span>
+                            {showThinking ? <ChevronDown className="h-3 w-3 ml-auto" /> : <ChevronRight className="h-3 w-3 ml-auto" />}
+                          </button>
+
+                          {showThinking && (
+                            <div className="px-3 py-3 border-t border-slate-800 bg-slate-900/20">
+                              <div className="prose prose-invert prose-xs max-w-none text-slate-400 font-mono text-[11px] leading-relaxed whitespace-pre-wrap">
+                                {thinkingContent}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code({ node, inline, className, children, ...props }: any) {
+                            const match = /language-(\w+)/.exec(className || '')
+                            const language = match ? match[1] : 'bash'
+
+                            // Extract filename if present: ```bash:filename.sh
+                            const filenameMatch = className?.match(/language-\w+:(.+)/)
+                            const filename = filenameMatch ? filenameMatch[1] : undefined
+
+                            return !inline && match ? (
+                              <CodeBlock
+                                language={language}
+                                value={String(children).replace(/\n$/, '')}
+                                filename={filename}
+                              />
+                            ) : (
+                              <code className={className} {...props}>
+                                {children}
+                              </code>
+                            )
+                          },
+                          pre({ children }) {
+                            return <>{children}</>
+                          },
+                        }}
+                      >
+                        {displayContent || (thinkingContent ? '...' : message.content)}
+                      </ReactMarkdown>
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>

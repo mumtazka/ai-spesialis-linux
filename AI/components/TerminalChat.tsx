@@ -37,6 +37,7 @@ export function TerminalChat({
   const { messages, addMessage, updateLastMessage, setLoading, isLoading, clearChat } = useChatStore()
   const [isStreaming, setIsStreaming] = useState(false)
   const [userScrolled, setUserScrolled] = useState(false)
+  const [showContext, setShowContext] = useState(false)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -162,7 +163,10 @@ export function TerminalChat({
       <TerminalHeader
         user={user}
         onLogout={onLogout}
+        onResetChat={clearChat}
         connectionStatus="connected"
+        showContext={showContext}
+        onToggleContext={() => setShowContext(!showContext)}
       />
 
       {/* Main Content */}
@@ -220,7 +224,7 @@ export function TerminalChat({
                     Welcome, {user?.username || 'User'}
                   </h1>
                   <p className="text-sm text-slate-400 text-center max-w-md mb-6">
-                    Your Linux Assistant is ready. System context loaded:
+                    Your Linux Assistant is ready. System context:
                     <br />
                     <span className="text-terminal-green font-mono">
                       {initialSystemContext?.distro_type || 'Unknown Distro'} {initialSystemContext?.distro_version}
@@ -302,12 +306,14 @@ export function TerminalChat({
         </div>
 
         {/* Right Sidebar - System Context (Desktop) */}
-        <div className="hidden lg:block w-80 border-l border-slate-800">
-          <SystemContext
-            initialData={initialSystemContext}
-            onSave={onSaveSystemContext}
-          />
-        </div>
+        {showContext && (
+          <div className="hidden lg:block w-80 border-l border-slate-800">
+            <SystemContext
+              initialData={initialSystemContext}
+              onSave={onSaveSystemContext}
+            />
+          </div>
+        )}
       </div>
     </div>
   )
