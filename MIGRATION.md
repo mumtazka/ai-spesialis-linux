@@ -61,4 +61,3 @@ If the Edge Function fails or you need to revert:
 1.  Restore `lib/ai/gemini.ts` from git history (previous commit).
 2.  Set `GEMINI_API_KEY` back in Netlify environment variables.
 3.  Redeploy frontend.
-sdsdsd

@@ -59,32 +59,18 @@ export async function fetchLinuxNews(options: NewsOptions = {}): Promise<NewsRes
         }
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    if (!supabaseUrl) {
-        return {
-            success: false,
-            count: 0,
-            last_updated: new Date().toISOString(),
-            sources: [],
-            items: [],
-            error: 'Supabase URL not configured'
-        };
-    }
-
     const params = new URLSearchParams();
     if (options.distro) params.set('distro', options.distro);
     if (options.limit) params.set('limit', options.limit.toString());
     if (options.severity) params.set('severity', options.severity);
 
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
     try {
+        // Use local API route instead of Supabase Edge Function
         const response = await fetch(
-            `${supabaseUrl}/functions/v1/news?${params.toString()}`,
+            `/api/news?${params.toString()}`,
             {
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${supabaseAnonKey}`,
                 }
             }
         );

@@ -261,10 +261,15 @@ export function TerminalChat({
               {/* Loading Indicator */}
               {isLoading && !isStreaming && (
                 <div className="flex items-center gap-2 px-4 py-4">
-                  <div className="h-8 w-8 rounded-sm bg-slate-800 flex items-center justify-center">
-                    <span className="text-lg font-mono text-terminal-green">
+                  <div className="h-8 w-8 relative flex items-center justify-center">
+                    {/* <span className="text-lg font-mono text-terminal-green">
                       ⠋
-                    </span>
+                    </span> */}
+                    <img
+                      src="/loading.gif"
+                      alt="Thinking..."
+                      className="h-full w-full object-contain opacity-80"
+                    />
                   </div>
                   <span className="text-sm text-slate-500 animate-pulse">
                     Thinking...

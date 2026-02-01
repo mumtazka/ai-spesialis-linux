@@ -311,10 +311,34 @@ export function NewsFeed({ userDistro, onNewsClick }: NewsFeedProps) {
             </SheetDescription>
           </SheetHeader>
 
+
+
           <div className="mt-4 space-y-4">
-            <p className="text-sm text-slate-300 leading-relaxed">
+            <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">
               {selectedNews?.summary}
             </p>
+
+            {/* Manual Intervention / Warning Guide */}
+            {(selectedNews?.severity === 'critical' || selectedNews?.severity === 'warning') && (
+              <div className={cn(
+                "p-4 rounded-md border space-y-2",
+                selectedNews.severity === 'critical'
+                  ? "border-red-500/30 bg-red-500/5 text-red-400"
+                  : "border-yellow-500/30 bg-yellow-500/5 text-yellow-500"
+              )}>
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <h4 className="text-sm font-semibold">
+                    {selectedNews.severity === 'critical' ? 'Manual Intervention Required' : 'Important Notice'}
+                  </h4>
+                </div>
+                <p className="text-xs opacity-90">
+                  {selectedNews.severity === 'critical'
+                    ? "This update requires manual action. Please read the full announcement carefully before upgrading."
+                    : "This news contains important information that may affect your system. Please review carefully."}
+                </p>
+              </div>
+            )}
 
             {/* Tags */}
             {selectedNews?.tags && selectedNews.tags.length > 0 && (
