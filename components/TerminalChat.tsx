@@ -95,22 +95,10 @@ export function TerminalChat({
       const validMessages = [...messages, { ...userMessage, id: 'temp', created_at: new Date().toISOString() }]
         .filter(m => m.content && m.content.trim().length > 0)
 
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: validMessages,
-          context: initialSystemContext,
-        }),
-      })
+      // Use direct Edge Function client (My updated implementation)
+      // This bypasses local API routes and uses robust stream parsing
+      const { streamChatCompletion } = await import('@/lib/ai/gemini')
 
-      if (!response.ok) {
-        throw new Error('Failed to get response')
-      }
-
-      // Handle streaming response
-      const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
       let assistantContent = ''
 
       // Add initial assistant message
@@ -119,31 +107,15 @@ export function TerminalChat({
         content: '',
       })
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          const chunk = decoder.decode(value, { stream: true })
-          const lines = chunk.split('\n')
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6)
-              if (data === '[DONE]') continue
-
-              try {
-                const parsed = JSON.parse(data)
-                if (parsed.content) {
-                  assistantContent += parsed.content
-                  updateLastMessage(assistantContent)
-                }
-              } catch {
-                // Ignore parse errors for incomplete chunks
-              }
-            }
-          }
+      // Stream the response directly from Edge Function
+      for await (const chunk of streamChatCompletion(validMessages, 'chat', initialSystemContext)) {
+        if (chunk.text) {
+          assistantContent += chunk.text
+          updateLastMessage(assistantContent)
         }
+
+        // Handling for immediate done is inside the generator, 
+        // but we ensure we update if any text arrived
       }
     } catch (error) {
       console.error('Error sending message:', error)

@@ -644,9 +644,25 @@ serve(async (req) => {
     try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL');
         const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-        const apiKey = Deno.env.get('GEMINI_API_KEY');
 
-        if (!apiKey) throw new Error('GEMINI_API_KEY missing');
+        // ================================================================
+        // SMART API KEY ROTATION WITH FAILOVER
+        // ================================================================
+        const getAllGeminiKeys = (): string[] => {
+            const keys = [
+                Deno.env.get('GEMINI_API_KEY'),
+                Deno.env.get('GEMINI_API_KEY_2'),
+                Deno.env.get('GEMINI_API_KEY_3'),
+                Deno.env.get('GEMINI_API_KEY_4'),
+                Deno.env.get('GEMINI_API_KEY_5')
+            ].filter(Boolean) as string[];
+
+            if (keys.length === 0) throw new Error('No GEMINI_API_KEYs configured');
+            return keys;
+        };
+
+        const availableKeys = getAllGeminiKeys();
+        console.log(`🔑 Loaded ${availableKeys.length} API keys for rotation`);
 
         const authHeader = req.headers.get('Authorization');
         let userTier: 'free' | 'pro' = 'free';
@@ -754,7 +770,7 @@ serve(async (req) => {
         let searchResults: SearchResult[] = [];
         const searchCheck = needsWebSearch(lastMsg.content || '');
         if (searchCheck.needed && searchCheck.query) {
-            searchResults = await searchWeb(searchCheck.query, apiKey);
+            searchResults = await searchWeb(searchCheck.query, availableKeys[0]);
         }
 
         // ================================================================
@@ -817,6 +833,12 @@ serve(async (req) => {
                 topK: 40,
                 maxOutputTokens: 8192,
             },
+            safetySettings: [
+                { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+                { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' }
+            ]
         };
 
         // Add Google Search grounding for real-time queries
@@ -825,17 +847,56 @@ serve(async (req) => {
         }
 
         // ================================================================
-        // CALL GEMINI API (STREAMING)
+        // CALL GEMINI API WITH AUTOMATIC FAILOVER
         // ================================================================
-        const geminiRes = await fetch(`${GEMINI_API_URL}?alt=sse&key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
-        });
+        let geminiRes: Response | null = null;
+        let lastError: Error | null = null;
+        let successfulKeyIndex = -1;
 
-        if (!geminiRes.ok) {
-            const err = await geminiRes.text();
-            throw new Error(`Gemini API: ${geminiRes.status} - ${err}`);
+        // Try each API key until one works
+        for (let i = 0; i < availableKeys.length; i++) {
+            const currentKey = availableKeys[i];
+            console.log(`🔄 Attempting API call with key #${i + 1}/${availableKeys.length}`);
+
+            try {
+                const attemptRes = await fetch(`${GEMINI_API_URL}?alt=sse&key=${currentKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody),
+                    signal: AbortSignal.timeout(30000), // 30 second timeout
+                });
+
+                if (attemptRes.ok) {
+                    geminiRes = attemptRes;
+                    successfulKeyIndex = i;
+                    console.log(`✅ API call successful with key #${i + 1}`);
+                    break;
+                } else {
+                    const errText = await attemptRes.text();
+                    console.warn(`⚠️ Key #${i + 1} failed with status ${attemptRes.status}: ${errText.substring(0, 100)}`);
+                    lastError = new Error(`API key #${i + 1} failed: ${attemptRes.status} - ${errText}`);
+
+                    // If quota exceeded or auth error, try next key immediately
+                    if (attemptRes.status === 429 || attemptRes.status === 401 || attemptRes.status === 403) {
+                        continue;
+                    }
+
+                    // For other errors, also try next key
+                    continue;
+                }
+            } catch (fetchError) {
+                console.error(`❌ Key #${i + 1} network error:`, fetchError);
+                lastError = fetchError as Error;
+                // Try next key on network errors (timeout, connection refused, etc.)
+                continue;
+            }
+        }
+
+        // If all keys failed, throw error
+        if (!geminiRes) {
+            const errorMsg = `All ${availableKeys.length} API keys failed. Last error: ${lastError?.message || 'Unknown error'}`;
+            console.error(`🚨 ${errorMsg}`);
+            throw new Error(errorMsg);
         }
 
         return new Response(geminiRes.body, {
@@ -843,6 +904,7 @@ serve(async (req) => {
                 ...corsHeaders,
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
+                'X-API-Key-Used': `${successfulKeyIndex + 1}`, // Debug header
             },
         });
 

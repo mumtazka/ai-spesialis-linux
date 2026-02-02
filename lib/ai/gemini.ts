@@ -34,6 +34,8 @@ interface GeminiStreamChunk {
  * Stream chat completion from Supabase Edge Function
  * Yields text chunks as they arrive from the model (via Edge Function proxy)
  */
+import { supabase } from '@/lib/supabase/client'
+
 export async function* streamChatCompletion(
     messages: Message[],
     mode: Mode,
@@ -47,12 +49,18 @@ export async function* streamChatCompletion(
         throw new GeminiError('Supabase configuration missing', 500)
     }
 
+    // Get user's JWT token from Supabase session
+    const { data: { session } } = await supabase.auth.getSession()
+
+    // Use user's JWT token if available, otherwise use anon key
+    const authToken = session?.access_token || supabaseAnonKey
+
     // Direct fetch to Edge Function (Universal - works on Client & Server)
     const response = await fetch(`${supabaseUrl}/functions/v1/chat`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${supabaseAnonKey}`,
+            'Authorization': `Bearer ${authToken}`,
         },
         body: JSON.stringify({
             messages,
@@ -84,19 +92,46 @@ export async function* streamChatCompletion(
             const { done, value } = await reader.read()
 
             if (done) {
+                // Process any remaining buffer content
+                if (buffer.trim()) {
+                    const line = buffer.trim()
+                    if (line.startsWith('data: ')) {
+                        // ... existing parse logic ...
+                        try {
+                            const dataStr = line.slice(6).trim()
+                            if (dataStr && dataStr !== '[DONE]') {
+                                const chunk = JSON.parse(dataStr)
+                                const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text
+                                if (text !== undefined) yield { text, done: false }
+                            }
+                        } catch (e) { console.error('Error parsing final chunk', e) }
+                    } else if (line.startsWith('{') || line.startsWith('[')) {
+                        // Fallback: Try parsing raw JSON (error response?)
+                        try {
+                            const json = JSON.parse(line)
+                            if (json.error) {
+                                yield { text: `\n⚠️ Content Error: ${json.error.message || 'Unknown error'}`, done: false }
+                            }
+                        } catch (e) { }
+                    }
+                }
+
                 yield { text: '', done: true }
                 break
             }
 
             buffer += decoder.decode(value, { stream: true })
 
-            // Process SSE events (Gemini format preserved by Edge Function)
-            const lines = buffer.split('\n')
-            buffer = lines.pop() || ''
+            // Robust SSE parsing: process line by line
+            let newlineIndex: number
+            while ((newlineIndex = buffer.indexOf('\n')) >= 0) {
+                const line = buffer.slice(0, newlineIndex).trim()
+                buffer = buffer.slice(newlineIndex + 1)
 
-            for (const line of lines) {
+                if (!line) continue
+
                 if (line.startsWith('data: ')) {
-                    const dataStr = line.slice(6).trim() // Renamed to avoid collision with 'data' var
+                    const dataStr = line.slice(6).trim()
 
                     if (!dataStr || dataStr === '[DONE]') {
                         continue
@@ -106,27 +141,45 @@ export async function* streamChatCompletion(
                         const chunk: GeminiStreamChunk = JSON.parse(dataStr)
 
                         if (chunk.error) {
-                            throw new GeminiError(
-                                chunk.error.message,
-                                chunk.error.code
-                            )
+                            console.error('Gemini Stream Error:', chunk.error)
+                            yield { text: `\n[Error: ${chunk.error.message}]`, done: false }
+                            continue
                         }
 
-                        const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text
-                        if (text) {
+                        const candidate = chunk.candidates?.[0]
+
+                        // Handle Safety Filters
+                        if (candidate?.finishReason === 'SAFETY') {
+                            yield { text: "\n⚠️ Content blocked by safety settings.", done: false }
+                            continue
+                        }
+
+                        const text = candidate?.content?.parts?.[0]?.text
+
+                        // Explicitly check for undefined, as empty string "" is valid text
+                        if (text !== undefined) {
                             yield { text, done: false }
                         }
 
-                        const finishReason = chunk.candidates?.[0]?.finishReason
-                        if (finishReason && finishReason !== 'STOP') {
-                            console.warn(`Gemini finish reason: ${finishReason}`)
+                        if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
+                            console.warn(`Gemini finish reason: ${candidate.finishReason}`)
                         }
                     } catch (parseError) {
-                        if (parseError instanceof GeminiError) {
-                            throw parseError
-                        }
-                        // Ignore malformed JSON chunks from stream
                         console.warn('Failed to parse stream chunk:', dataStr)
+                    }
+                } else {
+                    // Log non-SSE lines for debugging (might be raw error JSON)
+                    console.warn('Received non-SSE line:', line.substring(0, 100))
+
+                    // Try to parse as raw error if it looks like JSON
+                    if (line.startsWith('{')) {
+                        try {
+                            const json = JSON.parse(line)
+                            if (json.error || json.message) {
+                                const msg = json.error?.message || json.message || 'Unknown error';
+                                yield { text: `\n⚠️ Error: ${msg}`, done: false }
+                            }
+                        } catch (e) { }
                     }
                 }
             }
