@@ -279,6 +279,8 @@ export function TerminalChat({
             onSend={handleSendMessage}
             isLoading={isLoading}
             placeholder={`Ask about ${initialSystemContext?.distro_type || 'Linux'}...`}
+            user={user}
+            distro={initialSystemContext?.distro_type}
           />
         </div>
 

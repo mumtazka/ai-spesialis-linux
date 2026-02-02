@@ -84,29 +84,7 @@ export function TerminalHeader({
             </TooltipProvider>
           )}
 
-          {/* Context Toggle Button */}
-          {onToggleContext && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "h-8 w-8 text-slate-400 hover:text-slate-100",
-                      showContext && "bg-slate-800 text-slate-100"
-                    )}
-                    onClick={onToggleContext}
-                  >
-                    <PanelRight className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="bg-slate-800 text-slate-200 border-slate-700">
-                  <p className="text-xs">Toggle System Context</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
+
 
           {/* Connection Status */}
           <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-sm bg-slate-900/50">
@@ -173,6 +151,13 @@ export function TerminalHeader({
                   </div>
                 </div>
                 <DropdownMenuSeparator className="bg-slate-700" />
+                <DropdownMenuItem
+                  className="text-slate-300 focus:bg-slate-800 focus:text-slate-100 cursor-pointer"
+                  onClick={onToggleContext}
+                >
+                  <PanelRight className="mr-2 h-4 w-4" />
+                  System Context
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-slate-300 focus:bg-slate-800 focus:text-slate-100 cursor-pointer"
                   onClick={onLogout}

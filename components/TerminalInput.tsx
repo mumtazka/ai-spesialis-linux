@@ -12,12 +12,16 @@ interface TerminalInputProps {
   onSend: (message: string, files?: File[]) => void
   isLoading?: boolean
   placeholder?: string
+  user?: { username?: string; email?: string } | null
+  distro?: string
 }
 
 export function TerminalInput({
   onSend,
   isLoading = false,
   placeholder = 'Type your message...',
+  user,
+  distro
 }: TerminalInputProps) {
   const { mode, getModeColor } = useModeStore()
   const [input, setInput] = useState('')
@@ -27,27 +31,7 @@ export function TerminalInput({
   const isArch = mode === 'arch'
   const accentColor = getModeColor()
 
-  // Auto-resize textarea
-  useEffect(() => {
-    const textarea = textareaRef.current
-    if (textarea) {
-      textarea.style.height = 'auto'
-      const newHeight = Math.min(textarea.scrollHeight, 120) // Max 5 rows
-      textarea.style.height = `${newHeight}px`
-    }
-  }, [input])
-
-  // Focus input on Ctrl+/
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === '/') {
-        e.preventDefault()
-        textareaRef.current?.focus()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  // ... (existing effects)
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim()
@@ -80,16 +64,22 @@ export function TerminalInput({
     // FileDropZone handles its own state, we just track attached files
   }
 
-  // Generate terminal prompt based on mode
+  // Generate terminal prompt based on user and distro
   const getPrompt = () => {
-    const hostname = isArch ? 'arch-pc' : 'ubuntu-server'
-    const user = 'user'
+    // Get simple username (fallback to 'user')
+    const username = user?.username || user?.email?.split('@')[0] || 'user'
+
+    // Get hostname based on distro (e.g., 'arch-pc', 'ubuntu-pc')
+    const hostname = distro
+      ? `${distro.toLowerCase().replace(/[^a-z0-9]/g, '-')}-pc`
+      : isArch ? 'arch-pc' : 'linux-pc'
+
     const cwd = '~'
-    
+
     if (isArch) {
-      return `┌──(${user}㉿${hostname})-[${cwd}]`
+      return `┌──(${username}㉿${hostname})-[${cwd}]`
     }
-    return `${user}@${hostname}:${cwd}$`
+    return `${username}@${hostname}:${cwd}$`
   }
 
   return (
@@ -168,7 +158,7 @@ export function TerminalInput({
                 isLoading && 'opacity-50 cursor-not-allowed'
               )}
             />
-            
+
             {/* Character count (shows when typing) */}
             {input.length > 0 && (
               <span className="absolute bottom-1 right-2 text-[10px] text-slate-600">

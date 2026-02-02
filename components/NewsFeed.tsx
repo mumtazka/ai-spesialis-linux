@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Newspaper, ExternalLink, AlertCircle, ChevronRight, RefreshCw, Filter } from 'lucide-react'
+import { Newspaper, ExternalLink, AlertCircle, ChevronRight, RefreshCw, Filter, Rss } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
@@ -53,11 +53,16 @@ export function NewsFeed({ userDistro, onNewsClick }: NewsFeedProps) {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null)
   const [isSheetOpen, setIsSheetOpen] = useState(false)
-  const [filterDistro, setFilterDistro] = useState<string | undefined>(userDistro?.toLowerCase())
+  const [filterDistro, setFilterDistro] = useState<string | undefined>('all')
   const [lastUpdated, setLastUpdated] = useState<string>('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Fetch news
+  // ... (loadNews definition)
+
+  // Reset filter to 'all' (mixed feed) whenever user distro changes
+  useEffect(() => {
+    setFilterDistro('all')
+  }, [userDistro])
   const loadNews = useCallback(async (showRefreshIndicator = false) => {
     if (showRefreshIndicator) setIsRefreshing(true)
     else setIsLoading(true)
@@ -65,11 +70,28 @@ export function NewsFeed({ userDistro, onNewsClick }: NewsFeedProps) {
     try {
       const response = await fetchLinuxNews({
         distro: filterDistro === 'all' ? undefined : filterDistro,
-        limit: 30
+        limit: 50 // Increased limit to ensure diverse mix
       })
 
       if (response.success) {
-        setNews(response.items)
+        let items = response.items
+
+        // If viewing all news, prioritize user's distro at top
+        if (filterDistro === 'all' && userDistro) {
+          items.sort((a, b) => {
+            const aIsUser = a.distro.toLowerCase() === userDistro.toLowerCase()
+            const bIsUser = b.distro.toLowerCase() === userDistro.toLowerCase()
+
+            // User distro comes first
+            if (aIsUser && !bIsUser) return -1
+            if (!aIsUser && bIsUser) return 1
+
+            // Otherwise keep date sort (assuming API returns date desc)
+            return 0
+          })
+        }
+
+        setNews(items)
         setLastUpdated(response.last_updated)
       }
     } catch (error) {
@@ -78,7 +100,7 @@ export function NewsFeed({ userDistro, onNewsClick }: NewsFeedProps) {
       setIsLoading(false)
       setIsRefreshing(false)
     }
-  }, [filterDistro])
+  }, [filterDistro, userDistro])
 
   // Initial fetch
   useEffect(() => {
@@ -93,13 +115,6 @@ export function NewsFeed({ userDistro, onNewsClick }: NewsFeedProps) {
 
     return () => clearInterval(interval)
   }, [loadNews])
-
-  // Update filter when user distro changes
-  useEffect(() => {
-    if (userDistro) {
-      setFilterDistro(userDistro.toLowerCase())
-    }
-  }, [userDistro])
 
   // Scroll to top when new news arrives
   useEffect(() => {
@@ -133,8 +148,12 @@ export function NewsFeed({ userDistro, onNewsClick }: NewsFeedProps) {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
           <div className="flex items-center gap-2">
-            <Newspaper className="h-4 w-4 text-terminal-green" />
-            <h2 className="text-sm font-semibold text-slate-100">Linux News</h2>
+            <Rss className="h-4 w-4 text-terminal-green" />
+            <h2 className="text-sm font-semibold text-slate-100 capitalize">
+              {filterDistro && filterDistro !== 'all'
+                ? `${DISTRO_OPTIONS.find(d => d.key === filterDistro)?.label || filterDistro} News`
+                : 'Linux News'}
+            </h2>
           </div>
           <div className="flex items-center gap-1">
             {/* Filter Dropdown */}
