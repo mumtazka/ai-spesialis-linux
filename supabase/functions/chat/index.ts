@@ -245,19 +245,31 @@ function needsWebSearch(message: string): { needed: boolean; query?: string } {
         /latest\s+(news|update|version|release)/i,
         /what('s| is) new in/i,
         /current (version|status) of/i,
-        /how to .* in 202[4-9]/i,
+        /how to (install|configure|setup|build)/i,
         /is there .* update/i,
         /breaking changes? (in|for)/i,
         /search (for|about)/i,
-        /find (information|docs|documentation)/i,
-        /what happened (to|with)/i,
+        /find (information|docs|documentation|repo)/i,
+        /what (is|happened) (to|with)/i,
         /any (issues?|bugs?) with/i,
+        /who is/i,
+        /look up/i,
+        /dotfiles/i,
+        /configuration/i,
+        /theme/i,
+        /rice/i,  // Linux ricing term
+        // Indonesian Triggers
+        /(tau|tahu) (gak|nggak|tentang|soal|ngga)/i, // "Do you know about..."
+        /(apakah|apa) (itu|dimaksud) /i, // "What is..."
+        /(bisa|coba|tolong) (cari|cariin|carikan|cek)/i, // "Can you search/find..."
+        /gimana (cara|setting|setup|install|pasang)/i, // "How to..."
+        /ada (gak|nggak) (update|berita)/i, // "Is there news..."
     ];
 
     for (const trigger of searchTriggers) {
         if (trigger.test(message)) {
             // Extract search query from message
-            const query = message.replace(/^(please |can you |could you )/i, '').trim();
+            const query = message.replace(/^(please |can you |could you |just )/i, '').trim();
             return { needed: true, query };
         }
     }
@@ -290,20 +302,26 @@ function detectGitHubQuery(message: string): { isGitHub: boolean; repoName?: str
     const repoMatch = message.match(repoPattern);
 
     if (repoMatch) {
-        return { isGitHub: true, repoName: repoMatch[1] };
+        // Exclude common false positives like "usr/bin" if context implies it isn't a repo, 
+        // but for now assume X/Y format with reasonable chars is a repo if explicitly mentioned or looks like one.
+        // To be safer, we rely on the keywords below mostly, unless it's a clear URL.
+        if (message.includes('github.com')) {
+            return { isGitHub: true, repoName: repoMatch[1] };
+        }
     }
 
     // GitHub search keywords
     const githubKeywords = [
         'github', 'github repo', 'repository', 'readme',
         'open source', 'project on github', 'check github',
-        'find on github', 'github search'
+        'find on github', 'github search',
+        'dotfiles', 'config files', 'setup files'
     ];
 
     for (const keyword of githubKeywords) {
         if (lowerMsg.includes(keyword)) {
             // Extract potential search term
-            const searchTermMatch = message.match(/(?:github|repo(?:sitory)?|readme|project)\s+(?:for\s+)?([a-zA-Z0-9_\s-]+)/i);
+            const searchTermMatch = message.match(/(?:github|repo(?:sitory)?|readme|project|dotfiles|config)\s+(?:for\s+)?([a-zA-Z0-9_\s-]+)/i);
             return {
                 isGitHub: true,
                 searchQuery: searchTermMatch?.[1]?.trim() || message.replace(/github|repo|readme/gi, '').trim()
